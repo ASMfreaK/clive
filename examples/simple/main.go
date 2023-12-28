@@ -6,8 +6,8 @@ import (
 	"log"
 	"os"
 
-	"github.com/urfave/cli"
 	"github.com/Southclaws/clive"
+	"github.com/urfave/cli/v2"
 )
 
 func main() {

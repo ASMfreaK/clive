@@ -8,7 +8,7 @@ import (
 
 	"github.com/iancoleman/strcase"
 	"github.com/pkg/errors"
-	"github.com/urfave/cli"
+	"github.com/urfave/cli/v2"
 )
 
 // Build constructs a urfave/cli App from an instance of a decorated struct
@@ -22,6 +22,23 @@ func Build(objs ...interface{}) (c *cli.App) {
 		panic(err)
 	}
 	return
+}
+
+// BuildSubcommands constructs an array of urfave/cli Commands to be used as subcommands
+// Since it is designed to be used 1. on initialisation and; 2. with static data
+// that is compile-time only - it does not return an error but instead panics.
+// The idea is you will do all your setup once and as long as it doesn't change
+// this will never break, so there is little need to pass errors back.
+func BuildSubcommands(objs ...interface{}) (commands []*cli.Command) {
+	commands, err := buildCommands(objs...)
+	if err != nil {
+		panic(err)
+	}
+	return
+}
+
+func getFlagName(flag cli.Flag) string {
+	return flag.Names()[0]
 }
 
 // Flags is a helper function for use within a command Action function. It takes
@@ -58,33 +75,33 @@ func Flags(obj interface{}, c *cli.Context) (result interface{}) {
 
 			switch fieldType.Type.String() {
 			case "int":
-				resultValue.FieldByName(fieldType.Name).SetInt(int64(c.Int(flag.GetName())))
+				resultValue.FieldByName(fieldType.Name).SetInt(int64(c.Int(getFlagName(flag))))
 			case "int64":
-				resultValue.FieldByName(fieldType.Name).SetInt(c.Int64(flag.GetName()))
+				resultValue.FieldByName(fieldType.Name).SetInt(c.Int64(getFlagName(flag)))
 			case "uint":
-				resultValue.FieldByName(fieldType.Name).SetUint(uint64(c.Uint(flag.GetName())))
+				resultValue.FieldByName(fieldType.Name).SetUint(uint64(c.Uint(getFlagName(flag))))
 			case "uint64":
-				resultValue.FieldByName(fieldType.Name).SetUint(c.Uint64(flag.GetName()))
+				resultValue.FieldByName(fieldType.Name).SetUint(c.Uint64(getFlagName(flag)))
 			case "float32":
-				resultValue.FieldByName(fieldType.Name).SetFloat(c.Float64(flag.GetName()))
+				resultValue.FieldByName(fieldType.Name).SetFloat(c.Float64(getFlagName(flag)))
 			case "float64":
-				resultValue.FieldByName(fieldType.Name).SetFloat(c.Float64(flag.GetName()))
+				resultValue.FieldByName(fieldType.Name).SetFloat(c.Float64(getFlagName(flag)))
 			case "bool":
-				resultValue.FieldByName(fieldType.Name).SetBool(c.Bool(flag.GetName()))
+				resultValue.FieldByName(fieldType.Name).SetBool(c.Bool(getFlagName(flag)))
 			case "string":
-				resultValue.FieldByName(fieldType.Name).SetString(c.String(flag.GetName()))
+				resultValue.FieldByName(fieldType.Name).SetString(c.String(getFlagName(flag)))
 			case "time.Duration":
-				resultValue.FieldByName(fieldType.Name).SetInt(c.Duration(flag.GetName()).Nanoseconds())
+				resultValue.FieldByName(fieldType.Name).SetInt(c.Duration(getFlagName(flag)).Nanoseconds())
 			case "[]int":
-				resultValue.FieldByName(fieldType.Name).Set(genericSliceOf(c.IntSlice(flag.GetName())))
+				resultValue.FieldByName(fieldType.Name).Set(genericSliceOf(c.IntSlice(getFlagName(flag))))
 			case "[]int64":
-				resultValue.FieldByName(fieldType.Name).Set(genericSliceOf(c.Int64Slice(flag.GetName())))
+				resultValue.FieldByName(fieldType.Name).Set(genericSliceOf(c.Int64Slice(getFlagName(flag))))
 			// case "[]uint":
-			// 	resultValue.FieldByName(fieldType.Name).Set(genericSliceOf(c.IntSlice(flag.GetName())))
+			// 	resultValue.FieldByName(fieldType.Name).Set(genericSliceOf(c.IntSlice(getFlagName(flag))))
 			// case "[]uint64":
-			// 	resultValue.FieldByName(fieldType.Name).Set(genericSliceOf(c.Int64Slice(flag.GetName())))
+			// 	resultValue.FieldByName(fieldType.Name).Set(genericSliceOf(c.Int64Slice(getFlagName(flag))))
 			case "[]string":
-				resultValue.FieldByName(fieldType.Name).Set(genericSliceOf(c.StringSlice(flag.GetName())))
+				resultValue.FieldByName(fieldType.Name).Set(genericSliceOf(c.StringSlice(getFlagName(flag))))
 			default:
 				panic("unsupported type")
 			}
@@ -115,14 +132,9 @@ func genericSliceOf(slice interface{}) reflect.Value {
 func build(objs ...interface{}) (c *cli.App, err error) {
 	c = cli.NewApp()
 
-	commands := []cli.Command{}
-	for _, obj := range objs {
-		var command *cli.Command
-		command, err = commandFromObject(obj)
-		if err != nil {
-			return
-		}
-		commands = append(commands, *command)
+	commands, err := buildCommands(objs...)
+	if err != nil {
+		return
 	}
 
 	// if it's a one-command application, there's no need for a subcommand so
@@ -134,6 +146,18 @@ func build(objs ...interface{}) (c *cli.App, err error) {
 	} else {
 		c.Commands = commands
 		c.Flags = nil
+	}
+	return
+}
+
+func buildCommands(objs ...interface{}) (commands []*cli.Command, err error) {
+	for _, obj := range objs {
+		var command *cli.Command
+		command, err = commandFromObject(obj)
+		if err != nil {
+			return
+		}
+		commands = append(commands, command)
 	}
 	return
 }
@@ -276,148 +300,151 @@ func flagFromType(fieldType reflect.StructField, cmdmeta commandMetadata) (flag 
 	switch fieldType.Type.String() {
 	case "int":
 		def, _ := strconv.ParseInt(cmdmeta.Default, 10, 64)
-		flag = cli.IntFlag{
-			Name:   name,
-			EnvVar: env,
-			Value:  int(def),
-			Hidden: cmdmeta.Hidden,
-			Usage:  cmdmeta.Usage,
+		flag = &cli.IntFlag{
+			Name:    name,
+			EnvVars: []string{env},
+			Value:   int(def),
+			Hidden:  cmdmeta.Hidden,
+			Usage:   cmdmeta.Usage,
 		}
 
 	case "int64":
 		def, _ := strconv.ParseInt(cmdmeta.Default, 10, 64)
-		flag = cli.Int64Flag{
-			Name:   name,
-			EnvVar: env,
-			Value:  def,
-			Hidden: cmdmeta.Hidden,
-			Usage:  cmdmeta.Usage,
+		flag = &cli.Int64Flag{
+			Name:    name,
+			EnvVars: []string{env},
+			Value:   def,
+			Hidden:  cmdmeta.Hidden,
+			Usage:   cmdmeta.Usage,
 		}
 
 	case "uint":
 		def, _ := strconv.ParseUint(cmdmeta.Default, 10, 64)
-		flag = cli.UintFlag{
-			Name:   name,
-			EnvVar: env,
-			Value:  uint(def),
-			Hidden: cmdmeta.Hidden,
-			Usage:  cmdmeta.Usage,
+		flag = &cli.UintFlag{
+			Name:    name,
+			EnvVars: []string{env},
+			Value:   uint(def),
+			Hidden:  cmdmeta.Hidden,
+			Usage:   cmdmeta.Usage,
 		}
 
 	case "uint64":
 		def, _ := strconv.ParseUint(cmdmeta.Default, 10, 64)
-		flag = cli.Uint64Flag{
-			Name:   name,
-			EnvVar: env,
-			Value:  def,
-			Hidden: cmdmeta.Hidden,
-			Usage:  cmdmeta.Usage,
+		flag = &cli.Uint64Flag{
+			Name:    name,
+			EnvVars: []string{env},
+			Value:   def,
+			Hidden:  cmdmeta.Hidden,
+			Usage:   cmdmeta.Usage,
 		}
 
 	case "float32":
 		def, _ := strconv.ParseFloat(cmdmeta.Default, 32)
-		flag = cli.Float64Flag{
-			Name:   name,
-			EnvVar: env,
-			Value:  def,
-			Hidden: cmdmeta.Hidden,
-			Usage:  cmdmeta.Usage,
+		flag = &cli.Float64Flag{
+			Name:    name,
+			EnvVars: []string{env},
+			Value:   def,
+			Hidden:  cmdmeta.Hidden,
+			Usage:   cmdmeta.Usage,
 		}
 
 	case "float64":
 		def, _ := strconv.ParseFloat(cmdmeta.Default, 64)
-		flag = cli.Float64Flag{
-			Name:   name,
-			EnvVar: env,
-			Value:  def,
-			Hidden: cmdmeta.Hidden,
-			Usage:  cmdmeta.Usage,
+		flag = &cli.Float64Flag{
+			Name:    name,
+			EnvVars: []string{env},
+			Value:   def,
+			Hidden:  cmdmeta.Hidden,
+			Usage:   cmdmeta.Usage,
 		}
 
 	case "bool":
 		def, _ := strconv.ParseBool(cmdmeta.Default)
 		if !def {
-			flag = cli.BoolFlag{
-				Name:   name,
-				EnvVar: env,
-				Hidden: cmdmeta.Hidden,
-				Usage:  cmdmeta.Usage,
+			flag = &cli.BoolFlag{
+				Name:    name,
+				EnvVars: []string{env},
+				Hidden:  cmdmeta.Hidden,
+				Usage:   cmdmeta.Usage,
 			}
 		} else {
-			flag = cli.BoolTFlag{
-				Name:   name,
-				EnvVar: env,
-				Hidden: cmdmeta.Hidden,
-				Usage:  cmdmeta.Usage,
+			flag = &cli.BoolFlag{
+				Name:    name,
+				EnvVars: []string{env},
+				Value:   true,
+				Hidden:  cmdmeta.Hidden,
+				Usage:   cmdmeta.Usage,
 			}
 		}
 
 	case "string":
-		flag = cli.StringFlag{
-			Name:   name,
-			EnvVar: env,
-			Value:  cmdmeta.Default,
-			Hidden: cmdmeta.Hidden,
-			Usage:  cmdmeta.Usage,
+		flag = &cli.StringFlag{
+			Name:    name,
+			EnvVars: []string{env},
+			Value:   cmdmeta.Default,
+			Hidden:  cmdmeta.Hidden,
+			Usage:   cmdmeta.Usage,
 		}
 
 	case "time.Duration":
 		def, _ := time.ParseDuration(cmdmeta.Default)
-		flag = cli.DurationFlag{
-			Name:   name,
-			EnvVar: env,
-			Value:  def,
-			Hidden: cmdmeta.Hidden,
-			Usage:  cmdmeta.Usage,
+		flag = &cli.DurationFlag{
+			Name:    name,
+			EnvVars: []string{env},
+			Value:   def,
+			Hidden:  cmdmeta.Hidden,
+			Usage:   cmdmeta.Usage,
 		}
 
 	case "[]int":
 		var def *cli.IntSlice // must remain nil if unset
 		if cmdmeta.Default != "" {
-			def = &cli.IntSlice{}
+			var defs []int
 			for _, s := range strings.Split(cmdmeta.Default, ",") {
 				d, _ := strconv.Atoi(s)
-				*def = append(*def, d)
+				defs = append(defs, d)
 			}
+			def = cli.NewIntSlice(defs...)
 		}
-		flag = cli.IntSliceFlag{
-			Name:   name,
-			EnvVar: env,
-			Value:  def,
-			Hidden: cmdmeta.Hidden,
-			Usage:  cmdmeta.Usage,
+		flag = &cli.IntSliceFlag{
+			Name:    name,
+			EnvVars: []string{env},
+			Value:   def,
+			Hidden:  cmdmeta.Hidden,
+			Usage:   cmdmeta.Usage,
 		}
 
 	case "[]int64":
 		var def *cli.Int64Slice // must remain nil if unset
 		if cmdmeta.Default != "" {
-			def = &cli.Int64Slice{}
+			var defs []int64
 			for _, s := range strings.Split(cmdmeta.Default, ",") {
 				d, _ := strconv.Atoi(s)
-				*def = append(*def, int64(d))
+				defs = append(defs, int64(d))
 			}
+			def = cli.NewInt64Slice(defs...)
 		}
-		flag = cli.Int64SliceFlag{
-			Name:   name,
-			EnvVar: env,
-			Value:  def,
-			Hidden: cmdmeta.Hidden,
-			Usage:  cmdmeta.Usage,
+		flag = &cli.Int64SliceFlag{
+			Name:    name,
+			EnvVars: []string{env},
+			Value:   def,
+			Hidden:  cmdmeta.Hidden,
+			Usage:   cmdmeta.Usage,
 		}
 
 	// urfave/cli does not have unsigned types yet
 	// case "[]uint":
-	// 	flag = cli.IntSliceFlag{
+	// 	flag = &cli.IntSliceFlag{
 	// 		Name:   name,
-	// 		EnvVar: env,
+	// 		EnvVars: []string{env},
 	// 		Hidden: cmdmeta.Hidden,
 	// 		Usage:  cmdmeta.Usage,
 	// 	}
 
 	// case "[]uint64":
-	// 	flag = cli.Int64SliceFlag{
+	// 	flag = &cli.Int64SliceFlag{
 	// 		Name:   name,
-	// 		EnvVar: env,
+	// 		EnvVars: []string{env},
 	// 		Hidden: cmdmeta.Hidden,
 	// 		Usage:  cmdmeta.Usage,
 	// 	}
@@ -425,15 +452,14 @@ func flagFromType(fieldType reflect.StructField, cmdmeta commandMetadata) (flag 
 	case "[]string":
 		var def *cli.StringSlice // must remain nil if unset
 		if cmdmeta.Default != "" {
-			def = &cli.StringSlice{}
-			*def = strings.Split(cmdmeta.Default, ",")
+			def = cli.NewStringSlice(strings.Split(cmdmeta.Default, ",")...)
 		}
-		flag = cli.StringSliceFlag{
-			Name:   name,
-			EnvVar: env,
-			Value:  def,
-			Hidden: cmdmeta.Hidden,
-			Usage:  cmdmeta.Usage,
+		flag = &cli.StringSliceFlag{
+			Name:    name,
+			EnvVars: []string{env},
+			Value:   def,
+			Hidden:  cmdmeta.Hidden,
+			Usage:   cmdmeta.Usage,
 		}
 
 	default:

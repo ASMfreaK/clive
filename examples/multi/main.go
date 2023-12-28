@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/Southclaws/clive"
-	"github.com/urfave/cli"
+	"github.com/urfave/cli/v2"
 )
 
 func main() {
@@ -36,7 +36,7 @@ func main() {
 						return errors.New("failed to decode flags")
 					}
 
-					fmt.Println(flags)
+					fmt.Printf("%+v\n", flags)
 					return nil
 				},
 			},
