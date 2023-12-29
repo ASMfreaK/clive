@@ -1,6 +1,7 @@
 package clive
 
 import (
+	"encoding"
 	"reflect"
 	"strconv"
 	"strings"
@@ -130,7 +131,11 @@ func flagsForValue(obj *reflect.Value, objType reflect.Type, c *cli.Context) {
 			case "[]string":
 				obj.FieldByName(fieldType.Name).Set(genericSliceOf(c.StringSlice(getFlagName(flag))))
 			default:
-				panic("unsupported type")
+				if reflect.PointerTo(fieldType.Type).Implements(TextUnmarshalerType) {
+					obj.FieldByName(fieldType.Name).Addr().Interface().(encoding.TextUnmarshaler).UnmarshalText([]byte(c.String(getFlagName(flag))))
+				} else {
+					panic("unsupported type")
+				}
 			}
 		}
 	}
@@ -515,8 +520,20 @@ func flagFromType(fieldType reflect.StructField, cmdmeta commandMetadata) (flag 
 		}
 
 	default:
-		err = errors.Errorf("unsupported flag generator type: %s", fieldType.Type.String())
+		if reflect.PointerTo(fieldType.Type).Implements(TextUnmarshalerType) {
+			flag = &cli.StringFlag{
+				Name:    name,
+				EnvVars: []string{env},
+				Value:   cmdmeta.Default,
+				Hidden:  cmdmeta.Hidden,
+				Usage:   cmdmeta.Usage,
+			}
+		} else {
+			err = errors.Errorf("unsupported flag generator type: %s", fieldType.Type.String())
+		}
 	}
 
 	return flag, err
 }
+
+var TextUnmarshalerType = reflect.TypeOf((*encoding.TextUnmarshaler)(nil)).Elem()

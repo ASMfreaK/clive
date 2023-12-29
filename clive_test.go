@@ -10,6 +10,44 @@ import (
 	"github.com/urfave/cli/v2"
 )
 
+type ColorT int
+
+const (
+	Red ColorT = iota
+	Green
+	Blue
+)
+
+var colorStrings = []string{
+	Red:   "Red",
+	Green: "Green",
+	Blue:  "Blue",
+}
+
+func (c ColorT) String() string {
+	return colorStrings[c]
+}
+
+func (c *ColorT) UnmarshalText(text []byte) error {
+	for i, variant := range colorStrings {
+		if string(text) == variant {
+			*c = ColorT(i)
+			return nil
+		}
+	}
+	return fmt.Errorf("invalid color: %s", text)
+}
+
+func (c ColorT) MarshalText() ([]byte, error) {
+	return []byte(c.String()), nil
+}
+
+var AllColorT = []ColorT{
+	Red,
+	Green,
+	Blue,
+}
+
 func TestBuild(t *testing.T) {
 	type test struct {
 		objs  []interface{}
@@ -24,6 +62,7 @@ func TestBuild(t *testing.T) {
 		FlagPostgresDsn           string `cli:"default:hello"`
 		FlagProcessSchedule       string `cli:"hidden:true"`
 		FlagApplicationAPIAddress string `cli:"name:api_address"`
+		FlagColor                 ColorT `cli:"name:color"`
 	}
 	tests = append(tests, test{
 		[]interface{}{
@@ -48,6 +87,10 @@ func TestBuild(t *testing.T) {
 				&cli.StringFlag{
 					Name:    "api-address",
 					EnvVars: []string{"API_ADDRESS"},
+				},
+				&cli.StringFlag{
+					Name:    "color",
+					EnvVars: []string{"COLOR"},
 				},
 			},
 			Reader:    os.Stdin,
@@ -252,6 +295,7 @@ func TestRunAll(t *testing.T) {
 		FlagInts     []int
 		FlagInts64   []int64
 		FlagStrings  []string
+		FlagColor    ColorT
 	}
 
 	gotC := Build(T{Command: cli.Command{Action: func(c *cli.Context) error {
@@ -270,6 +314,7 @@ func TestRunAll(t *testing.T) {
 		assert.Equal(t, []int{9, 223, 372, 36, 854, 775, 807}, flags.FlagInts)
 		assert.Equal(t, []int64{9123372036854775801, 223, 372, 36, 854, 775, 807}, flags.FlagInts64)
 		assert.Equal(t, []string{"thing1", "thing2"}, flags.FlagStrings)
+		assert.Equal(t, Blue, flags.FlagColor)
 
 		return nil
 	}}})
@@ -300,6 +345,7 @@ func TestRunAll(t *testing.T) {
 		"--ints-64=807",
 		"--strings=thing1",
 		"--strings=thing2",
+		"--color=Blue",
 	})
 	if err != nil {
 		t.Error(err)
@@ -321,6 +367,7 @@ func TestRunAllDefaults(t *testing.T) {
 		FlagInts     []int         `cli:"default:'9,8,7'"`
 		FlagInts64   []int64       `cli:"default:9123372036854775801"`
 		FlagStrings  []string      `cli:"default:'thing1,thing2'"`
+		FlagColor    ColorT        `cli:"default:'Blue'"`
 	}
 
 	gotC, err := build(T{Command: cli.Command{Action: func(c *cli.Context) error {
@@ -339,6 +386,7 @@ func TestRunAllDefaults(t *testing.T) {
 		assert.Equal(t, []int{9, 8, 7}, flags.FlagInts)
 		assert.Equal(t, []int64{9123372036854775801}, flags.FlagInts64)
 		assert.Equal(t, []string{"thing1", "thing2"}, flags.FlagStrings)
+		assert.Equal(t, Blue, flags.FlagColor)
 
 		return nil
 	}}})
@@ -367,6 +415,7 @@ type ActionableT struct {
 	FlagInts     []int         `cli:"default:'9,8,7'"`
 	FlagInts64   []int64       `cli:"default:9123372036854775801"`
 	FlagStrings  []string      `cli:"default:'thing1,thing2'"`
+	FlagColor    ColorT        `cli:"default:'Blue'"`
 	t            *testing.T    `cli:"-"`
 }
 
@@ -383,6 +432,7 @@ func (act *ActionableT) Action(*cli.Context) error {
 	assert.Equal(act.t, []int{9, 8, 7}, act.FlagInts)
 	assert.Equal(act.t, []int64{9123372036854775801}, act.FlagInts64)
 	assert.Equal(act.t, []string{"thing1", "thing2"}, act.FlagStrings)
+	assert.Equal(act.t, Blue, act.FlagColor)
 	return nil
 }
 
