@@ -11,6 +11,10 @@ import (
 	"github.com/urfave/cli/v2"
 )
 
+type Actionable interface {
+	Action(*cli.Context) error
+}
+
 // Build constructs a urfave/cli App from an instance of a decorated struct
 // Since it is designed to be used 1. on initialisation and; 2. with static data
 // that is compile-time only - it does not return an error but instead panics.
@@ -60,11 +64,34 @@ func Flags(obj interface{}, c *cli.Context) (result interface{}) {
 
 	resultValue := reflect.New(objType).Elem()
 
+	flagsForValue(&resultValue, objType, c)
+
+	return resultValue.Interface()
+}
+
+func flagsForActionable(act Actionable, c *cli.Context) Actionable {
+
+	objValue := reflect.ValueOf(act)
+	for objValue.Kind() == reflect.Ptr {
+		objValue = objValue.Elem()
+	}
+
+	objType := objValue.Type()
+
+	flagsForValue(&objValue, objType, c)
+
+	return act
+}
+
+func flagsForValue(obj *reflect.Value, objType reflect.Type, c *cli.Context) {
 	for i := 0; i < objType.NumField(); i++ {
 		fieldType := objType.Field(i)
 		cmdmeta, err := parseMeta(fieldType.Tag.Get("cli"))
 		if err != nil {
 			panic(err)
+		}
+		if cmdmeta.Skipped {
+			continue
 		}
 
 		if strings.HasPrefix(fieldType.Name, "Flag") {
@@ -75,40 +102,38 @@ func Flags(obj interface{}, c *cli.Context) (result interface{}) {
 
 			switch fieldType.Type.String() {
 			case "int":
-				resultValue.FieldByName(fieldType.Name).SetInt(int64(c.Int(getFlagName(flag))))
+				obj.FieldByName(fieldType.Name).SetInt(int64(c.Int(getFlagName(flag))))
 			case "int64":
-				resultValue.FieldByName(fieldType.Name).SetInt(c.Int64(getFlagName(flag)))
+				obj.FieldByName(fieldType.Name).SetInt(c.Int64(getFlagName(flag)))
 			case "uint":
-				resultValue.FieldByName(fieldType.Name).SetUint(uint64(c.Uint(getFlagName(flag))))
+				obj.FieldByName(fieldType.Name).SetUint(uint64(c.Uint(getFlagName(flag))))
 			case "uint64":
-				resultValue.FieldByName(fieldType.Name).SetUint(c.Uint64(getFlagName(flag)))
+				obj.FieldByName(fieldType.Name).SetUint(c.Uint64(getFlagName(flag)))
 			case "float32":
-				resultValue.FieldByName(fieldType.Name).SetFloat(c.Float64(getFlagName(flag)))
+				obj.FieldByName(fieldType.Name).SetFloat(c.Float64(getFlagName(flag)))
 			case "float64":
-				resultValue.FieldByName(fieldType.Name).SetFloat(c.Float64(getFlagName(flag)))
+				obj.FieldByName(fieldType.Name).SetFloat(c.Float64(getFlagName(flag)))
 			case "bool":
-				resultValue.FieldByName(fieldType.Name).SetBool(c.Bool(getFlagName(flag)))
+				obj.FieldByName(fieldType.Name).SetBool(c.Bool(getFlagName(flag)))
 			case "string":
-				resultValue.FieldByName(fieldType.Name).SetString(c.String(getFlagName(flag)))
+				obj.FieldByName(fieldType.Name).SetString(c.String(getFlagName(flag)))
 			case "time.Duration":
-				resultValue.FieldByName(fieldType.Name).SetInt(c.Duration(getFlagName(flag)).Nanoseconds())
+				obj.FieldByName(fieldType.Name).SetInt(c.Duration(getFlagName(flag)).Nanoseconds())
 			case "[]int":
-				resultValue.FieldByName(fieldType.Name).Set(genericSliceOf(c.IntSlice(getFlagName(flag))))
+				obj.FieldByName(fieldType.Name).Set(genericSliceOf(c.IntSlice(getFlagName(flag))))
 			case "[]int64":
-				resultValue.FieldByName(fieldType.Name).Set(genericSliceOf(c.Int64Slice(getFlagName(flag))))
+				obj.FieldByName(fieldType.Name).Set(genericSliceOf(c.Int64Slice(getFlagName(flag))))
 			// case "[]uint":
-			// 	resultValue.FieldByName(fieldType.Name).Set(genericSliceOf(c.IntSlice(getFlagName(flag))))
+			// 	obj.FieldByName(fieldType.Name).Set(genericSliceOf(c.IntSlice(getFlagName(flag))))
 			// case "[]uint64":
-			// 	resultValue.FieldByName(fieldType.Name).Set(genericSliceOf(c.Int64Slice(getFlagName(flag))))
+			// 	obj.FieldByName(fieldType.Name).Set(genericSliceOf(c.Int64Slice(getFlagName(flag))))
 			case "[]string":
-				resultValue.FieldByName(fieldType.Name).Set(genericSliceOf(c.StringSlice(getFlagName(flag))))
+				obj.FieldByName(fieldType.Name).Set(genericSliceOf(c.StringSlice(getFlagName(flag))))
 			default:
 				panic("unsupported type")
 			}
 		}
 	}
-
-	return resultValue.Interface()
 }
 
 // given a generic slice type, returns a reflected version of that slice with
@@ -163,6 +188,7 @@ func buildCommands(objs ...interface{}) (commands []*cli.Command, err error) {
 }
 
 type commandMetadata struct {
+	Skipped bool
 	Name    string
 	Usage   string
 	Hidden  bool
@@ -176,8 +202,10 @@ func commandFromObject(obj interface{}) (command *cli.Command, err error) {
 
 	// recursively dereference
 	objValue := reflect.ValueOf(obj)
+	objIsPointer := false
 	for objValue.Kind() == reflect.Ptr {
 		objValue = objValue.Elem()
+		objIsPointer = true
 	}
 
 	// anonymous structs (struct{ ... }{}) are not allowed
@@ -200,6 +228,9 @@ func commandFromObject(obj interface{}) (command *cli.Command, err error) {
 		if err != nil {
 			return nil, err
 		}
+		if cmdmeta.Skipped {
+			continue
+		}
 
 		// automatically turn fields that begin with Flag into cli.Flag objects
 		if strings.HasPrefix(fieldType.Name, "Flag") {
@@ -208,6 +239,22 @@ func commandFromObject(obj interface{}) (command *cli.Command, err error) {
 				return nil, errors.Wrap(err, "failed to generate flag from struct field")
 			}
 			command.Flags = append(command.Flags, flag)
+		}
+	}
+	if objValue.CanAddr() {
+		act, ok := objValue.Addr().Interface().(Actionable)
+		if !ok {
+			return command, nil
+		}
+		if !objIsPointer {
+			return nil, errors.New("an Actionable struct is passed by value, pass by reference")
+		}
+		if command.Action != nil {
+			return nil, errors.New("embedded cli.Command has action")
+		}
+		command.Action = func(ctx *cli.Context) error {
+			flags := flagsForActionable(act, ctx)
+			return flags.Action(ctx)
 		}
 	}
 
@@ -253,7 +300,12 @@ func parseMeta(s string) (cmdmeta commandMetadata, err error) {
 		}
 		return false
 	})
+	cmdmeta.Skipped = false
 	for _, section := range sections {
+		if section == "-" {
+			cmdmeta.Skipped = true
+			return cmdmeta, err
+		}
 		keyvalue := strings.SplitN(section, ":", 2)
 		if len(keyvalue) == 2 {
 			switch keyvalue[0] {

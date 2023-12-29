@@ -352,3 +352,50 @@ func TestRunAllDefaults(t *testing.T) {
 		t.Error(err)
 	}
 }
+
+type ActionableT struct {
+	cli.Command
+	FlagInt      int           `cli:"default:2147483646"`
+	FlagInt64    int64         `cli:"default:9123372036854775801"`
+	FlagUint     uint          `cli:"default:9123372036854775801"`
+	FlagUint64   uint64        `cli:"default:18446744073709551610"`
+	FlagFloat32  float32       `cli:"default:4.5"`
+	FlagFloat64  float64       `cli:"default:4.5"`
+	FlagBool     bool          `cli:"default:true"`
+	FlagString   string        `cli:"default:thing"`
+	FlagDuration time.Duration `cli:"default:1h5m10s"`
+	FlagInts     []int         `cli:"default:'9,8,7'"`
+	FlagInts64   []int64       `cli:"default:9123372036854775801"`
+	FlagStrings  []string      `cli:"default:'thing1,thing2'"`
+	t            *testing.T    `cli:"-"`
+}
+
+func (act *ActionableT) Action(*cli.Context) error {
+	assert.Equal(act.t, int(2147483646), act.FlagInt)
+	assert.Equal(act.t, int64(9123372036854775801), act.FlagInt64)
+	assert.Equal(act.t, uint(9123372036854775801), act.FlagUint)
+	assert.Equal(act.t, uint64(18446744073709551610), act.FlagUint64)
+	assert.Equal(act.t, float32(4.5), act.FlagFloat32)
+	assert.Equal(act.t, 4.5, act.FlagFloat64)
+	assert.Equal(act.t, true, act.FlagBool)
+	assert.Equal(act.t, "thing", act.FlagString)
+	assert.Equal(act.t, time.Hour+(time.Minute*5)+(time.Second*10), act.FlagDuration)
+	assert.Equal(act.t, []int{9, 8, 7}, act.FlagInts)
+	assert.Equal(act.t, []int64{9123372036854775801}, act.FlagInts64)
+	assert.Equal(act.t, []string{"thing1", "thing2"}, act.FlagStrings)
+	return nil
+}
+
+func TestSubcommands(t *testing.T) {
+	act := &ActionableT{t: t}
+	gotC, err := build(act)
+	if err != nil {
+		t.Error(err)
+	}
+	err = gotC.Run([]string{
+		"",
+	})
+	if err != nil {
+		t.Error(err)
+	}
+}
