@@ -21,30 +21,22 @@ A single struct can declare your entire application, then at run-time all you ha
 A single-command instance will make all the flags global and assign the action function to the root `App` object:
 
 ```go
+type app struct {
+	*clive.Command `cli:"usage:'this command does a, b and c'"` // embedding this is necessary
+	Run            clive.RunFunc
+	FlagHost       string
+	FlagPort       int
+	FlagDoStuff    bool
+}
+func (*app) Action(ctx *cli.Context){
+	a := c.Current(ctx).(*app)
+	fmt.Println(a.FlagHost)
+	fmt.Println(a.FlagPort)
+	fmt.Println(a.FlagDoStuff)
+	return nil
+}
 func main() {
-	type app struct {
-		cli.Command `cli:"usage:'this command does a, b and c'"`
-		FlagHost    string
-		FlagPort    int
-		FlagDoStuff bool
-	}
-	err := clive.Build(app{
-		Command: cli.Command{
-			Action: func(c *cli.Context) error {
-				flags, ok := clive.Flags(app{}, c).(app)
-				if !ok {
-					return errors.New("failed to decode flags")
-				}
-
-				fmt.Println("Flags:")
-				fmt.Println(flags.FlagHost)
-				fmt.Println(flags.FlagPort)
-				fmt.Println(flags.FlagDoStuff)
-
-				return nil
-			},
-		},
-	}).Run(os.Args)
+	err := clive.Build(&app{}).Run(os.Args)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -148,8 +140,10 @@ the "usage" text but it can also be used on `Flag` fields.
 The format is:
 
 ```
-`cli:"key:value,key:value,key:value"`
+`cli:"key:value,key:'value',key:value"`
 ```
+
+Single quotes (`''`) are allowed to escape the comma (`,`) character.
 
 The available tag names are:
 
@@ -157,5 +151,11 @@ The available tag names are:
 - `usage`: set the usage text for the flag
 - `hidden`: hide the flag
 - `default`: set the default value
+- `required`: set the required flag
+
+- `positional`: converts flag into a positional argument (taken from `ctx.Args()`)
 
 The only tag used for the top-level `App` is `usage` which must be applied to the embedded `cli.Command` struct.
+
+
+
