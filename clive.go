@@ -18,6 +18,9 @@ type (
 	WithVersion interface {
 		Version() string
 	}
+	WithDescription interface {
+		Description() string
+	}
 )
 
 type CommandLike interface {
@@ -183,6 +186,7 @@ func build(objs ...interface{}) (c *cli.App, err error) {
 	// just move the command's contents into the root object, aka the 'App'
 	if len(commands) == 1 {
 		c.Usage = commands[0].Usage
+		c.Description = commands[0].Description
 		c.Before = commands[0].Before
 		c.Action = commands[0].Action
 		c.Flags = commands[0].Flags
@@ -310,6 +314,10 @@ func commandFromObject(c *cli.App, parentCommandPath string, obj interface{}) (*
 		return nil, fmt.Errorf("command struct %s must implement Actionable", objValue.Type().Name())
 	}
 	c.Metadata[commandPath] = act
+
+	if desc, ok := objValue.Addr().Interface().(WithDescription); ok {
+		command.Description = desc.Description()
+	}
 
 	var positionals []commandMetadata
 

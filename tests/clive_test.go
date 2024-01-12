@@ -66,6 +66,13 @@ type Stop struct {
 	Service        []string `cli:"positional,usage:'services to use',required:false"`
 }
 
+func (*Stop) Description() string {
+	return `
+this is a long and very and descriptive text
+describing stop command
+`
+}
+
 func (start *Stop) Action(*cli.Context) error {
 	fmt.Printf("stop %+v\n", start)
 	return nil
@@ -217,9 +224,10 @@ func TestBuild(t *testing.T) {
 					ArgsUsage: "[SERVICE [SERVICE]]",
 				},
 				{
-					Name:  "stops",
-					Usage: "stop service",
-					Flags: []cli.Flag{},
+					Name:        "stops",
+					Usage:       "stop service",
+					Description: (*Stop)(nil).Description(),
+					Flags:       []cli.Flag{},
 
 					Args:      true,
 					ArgsUsage: "[SERVICE [SERVICE]]",

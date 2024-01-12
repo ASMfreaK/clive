@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strings"
 
 	clive "github.com/ASMfreaK/clive2"
 	"github.com/urfave/cli/v2"
@@ -18,6 +19,12 @@ type Start struct {
 func (start *Start) Action(*cli.Context) error {
 	fmt.Printf("start %+v\n", start)
 	return nil
+}
+
+func (start *Start) Description() string {
+	return strings.ReplaceAll(`
+Start runs ”docker compose run [SERVICE [SERVICE]]”
+`, "”", "`")
 }
 
 type Stop struct {
@@ -105,6 +112,19 @@ type App struct {
 	PostgresDsn           string `cli:"default:hello"`
 	ProcessSchedule       string `cli:"hidden:true"`
 	ApplicationAPIAddress string `cli:"name:api_address"`
+}
+
+func (start *App) Description() string {
+	return `
+This is a long and descriptive text
+describing this command, it will go into
+Description field of cli.Command 
+or cli.App (if this is a top-level command)
+`
+}
+
+func (*App) Version() string {
+	return "a"
 }
 
 func main() {

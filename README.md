@@ -1,4 +1,4 @@
-# **CLI**, made **V**ery **E**asy! (clive)
+# **CLI**, made **V**ery **E**asy!, second overhaul (clive2)
 
 This compacts the huge declaration of a `cli.App` into a declarative, (mostly) compile-time checked and automated
 generator based on struct tags.
