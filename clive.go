@@ -77,8 +77,66 @@ func (c *Command) Action(ctx *cli.Context) error {
 	return ErrCommandNotImplemented()
 }
 
+type MethodNotFoundError struct {
+	methodName string
+}
+
+func (e *MethodNotFoundError) Error() string {
+	return fmt.Sprintf("flag required, but no suitable fallback method found (%s)", e.methodName)
+}
+
+var NilError = errors.New("obj is n ull")
+
+type ByValueError struct {
+	Type string
+}
+
+func (e *ByValueError) Error() string {
+	return fmt.Sprintf("command struct %s is passed by value, pass by reference", e.Type)
+}
+
+type ActionableNotImplementedError struct {
+	Type string
+}
+
+func (e *ActionableNotImplementedError) Error() string {
+	return fmt.Sprintf("command struct %s must implement Actionable", e.Type)
+}
+
+type WrongFirstFieldError struct {
+	NumFields int
+
+	FieldName string
+	Type      string
+}
+
+func (e *WrongFirstFieldError) Error() string {
+	return fmt.Sprintf(`
+	command struct:
+	* should have at least one field (have %d)
+	* its first field must be an embedded *clive.Command (name: %s, type: %s)
+	`, e.NumFields, e.FieldName, e.Type)
+}
+
+type HiddenPositionalError struct {
+	Name string
+}
+
+func (e *HiddenPositionalError) Error() string {
+	return fmt.Sprintf("positional argument %s cannot be Hidden", e.Name)
+}
+
+type PositionalAfterVariadicError struct {
+	CurrentName string
+	FirstName   string
+}
+
+func (e *PositionalAfterVariadicError) Error() string {
+	return fmt.Sprintf("cant add positional argument %s after variadic (slice of x) argument %s", e.CurrentName, e.FirstName)
+}
+
 // Build constructs a urfave/cli App from an instance of a decorated struct
-// Since it is designed to be used 1. on initialisation and; 2. with static data
+// Since it is designed to be used 1. on initialization and; 2. with static data
 // that is compile-time only - it does not return an error but instead panics.
 // The idea is you will do all your setup once and as long as it doesn't change
 // this will never break, so there is little need to pass errors back.
@@ -104,6 +162,21 @@ func flagsForActionable(act Actionable, c *cli.Context) (Actionable, error) {
 	return act, err
 }
 
+func flagFromUnsetMethod(obj *reflect.Value, fieldType reflect.StructField, c *cli.Context) (err error) {
+	methodName := "On" + fieldType.Name + "Unset"
+	unset := obj.Addr().MethodByName(methodName)
+	if unset.IsValid() && unset.CanInterface() {
+		if unsetFunc, set := unset.Interface().(func() error); set {
+			err = unsetFunc()
+		} else if unsetFunc, set := unset.Interface().(func(*cli.Context) error); set {
+			err = unsetFunc(c)
+		} else {
+			err = &MethodNotFoundError{methodName: methodName}
+		}
+	}
+	return
+}
+
 func flagsForValue(obj *reflect.Value, objType reflect.Type, c *cli.Context) error {
 	args := c.Args().Slice()
 	for i := 1; i < objType.NumField(); i++ {
@@ -111,41 +184,51 @@ func flagsForValue(obj *reflect.Value, objType reflect.Type, c *cli.Context) err
 		if fieldType.Name == "Subcommands" || (fieldType.Name == "Run" && fieldType.Type == reflect.TypeOf((RunFunc)(nil))) {
 			continue
 		}
-		cmdmeta, err := parseMeta(fieldType)
+		cmdMeta, err := parseMeta(fieldType)
 		if err != nil {
 			return err
 		}
-		if cmdmeta.Skipped {
+		if cmdMeta.Skipped {
 			continue
 		}
 		field := obj.FieldByName(fieldType.Name).Addr()
 		var setFrom string
-		if cmdmeta.Positional {
+		if cmdMeta.Positional {
 			if len(args) == 0 {
-				if !cmdmeta.Required {
-					err = cmdmeta.SetValueFromString(field, cmdmeta.Default)
+				if !cmdMeta.Required {
+					if cmdMeta.Default != nil {
+						err = cmdMeta.SetValueFromString(field, *cmdMeta.Default)
+						if err != nil {
+							setFrom = fmt.Sprintf("from default value %s", *cmdMeta.Default)
+						}
+					}
+					err = flagFromUnsetMethod(obj, fieldType, c)
 					if err != nil {
-						setFrom = fmt.Sprintf("from default value %s", cmdmeta.Default)
+						setFrom = "from fallback method"
 					}
 				} else {
 					err = errors.New("too few positional arguments")
 				}
 			} else {
-				if cmdmeta.IsVariadic() {
-					err = cmdmeta.SetValueFromStrings(field, args)
+				if cmdMeta.IsVariadic() {
+					err = cmdMeta.SetValueFromStrings(field, args)
 					args = []string{}
 				} else {
-					err = cmdmeta.SetValueFromString(field, args[0])
+					err = cmdMeta.SetValueFromString(field, args[0])
 					args = args[1:]
 				}
 			}
 			if err != nil {
-				setFrom = fmt.Sprintf("positional argument %s %s", strcase.ToScreamingSnake(cmdmeta.Name), setFrom)
+				setFrom = fmt.Sprintf("positional argument %s %s", strcase.ToScreamingSnake(cmdMeta.Name), setFrom)
 			}
 		} else {
-			err = cmdmeta.SetValueFromContext(field, cmdmeta.Name, c)
+			if c.IsSet(cmdMeta.Name) || cmdMeta.Default != nil {
+				err = cmdMeta.SetValueFromContext(field, cmdMeta.Name, c)
+			} else {
+				err = flagFromUnsetMethod(obj, fieldType, c)
+			}
 			if err != nil {
-				setFrom = fmt.Sprintf("from flag %s", cmdmeta.Name)
+				setFrom = fmt.Sprintf("from flag %s", cmdMeta.Name)
 			}
 		}
 		if err != nil {
@@ -176,6 +259,7 @@ func genericSliceOf(slice interface{}) reflect.Value {
 func build(objs ...interface{}) (c *cli.App, err error) {
 	c = cli.NewApp()
 	c.Metadata = make(map[string]interface{})
+	c.HideHelpCommand = true
 
 	commands, err := buildCommands(c, "", objs...)
 	if err != nil {
@@ -250,7 +334,7 @@ type commandMetadata struct {
 	Envs       []string
 	Usage      string
 	Hidden     bool
-	Default    string
+	Default    *string
 	Skipped    bool
 	Positional bool
 	Required   bool
@@ -258,7 +342,7 @@ type commandMetadata struct {
 
 func commandFromObject(c *cli.App, parentCommandPath string, obj interface{}) (*cli.Command, error) {
 	if obj == nil {
-		return nil, errors.New("obj is null")
+		return nil, NilError
 	}
 
 	// recursively dereference
@@ -269,15 +353,21 @@ func commandFromObject(c *cli.App, parentCommandPath string, obj interface{}) (*
 		objIsPointer = true
 	}
 	if !objValue.CanAddr() || !objIsPointer {
-		return nil, fmt.Errorf("command struct %s is passed by value, pass by reference", objValue.Type().Name())
+		return nil, &ByValueError{objValue.Type().Name()}
 	}
 
-	// anonymous structs (struct{ ... }{}) are not allowed
 	objType := objValue.Type()
+
+	if objType.NumField() == 0 {
+		return nil, &WrongFirstFieldError{NumFields: 0}
+	}
 
 	// the first field must be an embedded *Command struct
 	command, err := getCommand(objType.Field(0), objValue.Field(0))
 	if err != nil {
+		if wffe, ok := err.(*WrongFirstFieldError); ok {
+			wffe.NumFields = objType.NumField()
+		}
 		return nil, err
 	}
 
@@ -311,7 +401,7 @@ func commandFromObject(c *cli.App, parentCommandPath string, obj interface{}) (*
 
 	act, ok := objValue.Addr().Interface().(Actionable)
 	if !ok {
-		return nil, fmt.Errorf("command struct %s must implement Actionable", objValue.Type().Name())
+		return nil, &ActionableNotImplementedError{objValue.Type().Name()}
 	}
 	c.Metadata[commandPath] = act
 
@@ -335,41 +425,43 @@ func commandFromObject(c *cli.App, parentCommandPath string, obj interface{}) (*
 			continue
 		}
 
-		var cmdmeta commandMetadata
-		cmdmeta, err = parseMeta(fieldType)
+		var cmdMeta commandMetadata
+		cmdMeta, err = parseMeta(fieldType)
 		if err != nil {
 			return nil, err
 		}
-		if cmdmeta.Skipped {
+		if cmdMeta.Skipped {
 			continue
 		}
 
-		if cmdmeta.Positional {
-			positionals = append(positionals, cmdmeta)
+		if cmdMeta.Positional {
+			positionals = append(positionals, cmdMeta)
 		} else {
 			// automatically turn fields that begin with Flag into cli.Flag objects
 			var flag cli.Flag
-			flag, err = cmdmeta.NewFlag(cmdmeta)
+			flag, err = cmdMeta.NewFlag(cmdMeta)
 			if err != nil {
 				return nil, err
 			}
+
 			command.Flags = append(command.Flags, flag)
 		}
 	}
 	command.Args = len(positionals) != 0
 	optionalStarted := false
-	variadicStarted := false
+	var variadicStarted *string = nil
 	var positionalUsage []string
 	for _, positional := range positionals {
-		if variadicStarted {
-			return nil, fmt.Errorf("cant add positional argument %s after a variadic (slice of x) argument", positional.Name)
+		if variadicStarted != nil {
+			return nil, &PositionalAfterVariadicError{CurrentName: positional.Name, FirstName: *variadicStarted}
 		}
 		if positional.Hidden {
-			return nil, fmt.Errorf("positional argument %s cannot be Hidden", positional.Name)
+			return nil, &HiddenPositionalError{positional.Name}
 		}
 		usage := strcase.ToScreamingSnake(positional.Name)
 		if positional.IsVariadic() {
-			variadicStarted = true
+			variadicStarted = new(string)
+			*variadicStarted = positional.Name
 			usage = fmt.Sprintf("%s [%[1]s]", usage)
 		}
 		optional := !positional.Required
@@ -384,16 +476,17 @@ func commandFromObject(c *cli.App, parentCommandPath string, obj interface{}) (*
 		positionalUsage = append(positionalUsage, usage)
 	}
 	command.ArgsUsage = strings.Join(positionalUsage, " ")
+	command.HideHelpCommand = true
 	return command.Command, nil
 }
 
 func getCommand(fieldType reflect.StructField, fieldValue reflect.Value) (c *Command, err error) {
-	if fieldType.Name != "Command" {
-		return nil, fmt.Errorf("first field must be an embedded cli.Command, got %s", fieldType.Name)
-	}
-
-	if fieldValue.Kind() != reflect.Pointer {
-		return nil, errors.New("expected Command field to be a pointer (specifically, an embedded *clive.Command struct pointer)")
+	if fieldType.Name != "Command" || fieldType.Type != reflect.TypeOf((*Command)(nil)) {
+		return nil, &WrongFirstFieldError{
+			NumFields: 0,
+			FieldName: fieldType.Name,
+			Type:      fieldType.Type.String(),
+		}
 	}
 
 	if fieldValue.IsNil() {
@@ -408,29 +501,29 @@ func getCommand(fieldType reflect.StructField, fieldValue reflect.Value) (c *Com
 		cmd.Command = &cli.Command{}
 	}
 
-	cmdmeta, err := parseMeta(fieldType)
+	cmdMeta, err := parseMeta(fieldType)
 	if err != nil {
-		return nil, errors.Wrap(err, "failed to read cmdmeta tag on the embedded clive.Command struct pointer")
+		return nil, errors.Wrap(err, "failed to read cmdMeta tag on the embedded clive.Command struct pointer")
 	}
-	if cmdmeta.Name != "" {
-		cmd.Name = cmdmeta.Name
+	if cmdMeta.Name != "" {
+		cmd.Name = cmdMeta.Name
 	}
-	cmd.Usage = cmdmeta.Usage
+	cmd.Usage = cmdMeta.Usage
 	cmd.Flags = []cli.Flag{}
 
 	return cmd, nil
 }
 
-func parseMeta(fieldType reflect.StructField) (cmdmeta commandMetadata, err error) {
+func parseMeta(fieldType reflect.StructField) (cmdMeta commandMetadata, err error) {
 	s := fieldType.Tag.Get("cli")
 
-	cmdmeta.Skipped = false
+	cmdMeta.Skipped = false
 	if s == "-" {
-		cmdmeta.Skipped = true
-		return cmdmeta, err
+		cmdMeta.Skipped = true
+		return cmdMeta, err
 	}
-	cmdmeta.Required = false
-	cmdmeta.Positional = false
+	cmdMeta.Required = false
+	cmdMeta.Positional = false
 	// this code allows strings to be placed inside single-quotes in order to
 	// escape comma characters.
 	quotes := false
@@ -448,34 +541,35 @@ func parseMeta(fieldType reflect.StructField) (cmdmeta commandMetadata, err erro
 	requiredSetFromTags := false
 	for _, section := range sections {
 		if section == "positional" {
-			cmdmeta.Positional = true
+			cmdMeta.Positional = true
 			continue
 		}
-		keyvalue := strings.SplitN(section, ":", 2)
-		if len(keyvalue) == 2 {
-			keyvalue[1] = strings.Trim(keyvalue[1], "'")
-			switch keyvalue[0] {
+		keyValue := strings.SplitN(section, ":", 2)
+		if len(keyValue) == 2 {
+			keyValue[1] = strings.Trim(keyValue[1], "'")
+			switch keyValue[0] {
 			case "name":
-				cmdmeta.Name = keyvalue[1]
+				cmdMeta.Name = keyValue[1]
 			case "usage":
-				cmdmeta.Usage = keyvalue[1] // trim single-quotes
+				cmdMeta.Usage = keyValue[1] // trim single-quotes
 			case "required":
-				cmdmeta.Required, err = strconv.ParseBool(keyvalue[1])
+				cmdMeta.Required, err = strconv.ParseBool(keyValue[1])
 				if err != nil {
 					err = errors.Wrap(err, "failed to parse 'required' as a bool")
 				}
 				requiredSetFromTags = true
 			case "env":
-				cmdmeta.Envs = strings.Split(keyvalue[1], ",")
+				cmdMeta.Envs = strings.Split(keyValue[1], ",")
 			case "hidden":
-				cmdmeta.Hidden, err = strconv.ParseBool(keyvalue[1])
+				cmdMeta.Hidden, err = strconv.ParseBool(keyValue[1])
 				if err != nil {
 					err = errors.Wrap(err, "failed to parse 'hidden' as a bool")
 				}
 			case "default":
-				cmdmeta.Default = keyvalue[1]
+				cmdMeta.Default = new(string)
+				*cmdMeta.Default = keyValue[1]
 			default:
-				err = errors.Errorf("unknown command tag: '%s:%s'", keyvalue[0], keyvalue[1])
+				err = errors.Errorf("unknown command tag: '%s:%s'", keyValue[0], keyValue[1])
 			}
 		} else {
 			err = errors.Errorf("malformed tag: '%s'", section)
@@ -484,28 +578,28 @@ func parseMeta(fieldType reflect.StructField) (cmdmeta commandMetadata, err erro
 			return
 		}
 	}
-	if cmdmeta.Positional {
+	if cmdMeta.Positional {
 		if !requiredSetFromTags {
-			cmdmeta.Required = cmdmeta.Default == ""
+			cmdMeta.Required = cmdMeta.Default == nil
 		}
 	}
 	if fieldType.Type != reflect.TypeOf((*Command)(nil)) {
-		cmdmeta.TypeInterface, err = flagType(fieldType)
+		cmdMeta.TypeInterface, err = flagType(fieldType)
 		if err != nil {
-			err = errors.Wrapf(err, "cant find type for %s field", cmdmeta.Name)
+			err = errors.Wrapf(err, "cant find type for %s field", cmdMeta.Name)
 			return
 		}
-		if cmdmeta.Name == "" {
-			cmdmeta.Name = fieldType.Name
+		if cmdMeta.Name == "" {
+			cmdMeta.Name = fieldType.Name
 		}
 	}
-	if cmdmeta.Name != "" {
-		cmdmeta.Name = strcase.ToKebab(cmdmeta.Name)
+	if cmdMeta.Name != "" {
+		cmdMeta.Name = strcase.ToKebab(cmdMeta.Name)
 	}
-	if len(cmdmeta.Envs) == 0 {
-		cmdmeta.Envs = []string{
-			strcase.ToScreamingSnake(cmdmeta.Name),
+	if len(cmdMeta.Envs) == 0 {
+		cmdMeta.Envs = []string{
+			strcase.ToScreamingSnake(cmdMeta.Name),
 		}
 	}
-	return cmdmeta, err
+	return cmdMeta, err
 }

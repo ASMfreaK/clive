@@ -23,8 +23,8 @@ func (start *Start) Action(*cli.Context) error {
 
 func (start *Start) Description() string {
 	return strings.ReplaceAll(`
-Start runs ”docker compose run [SERVICE [SERVICE]]”
-`, "”", "`")
+Start runs ˝docker compose run [SERVICE [SERVICE]]˝
+`, "˝", "`")
 }
 
 type Stop struct {
