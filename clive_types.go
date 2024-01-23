@@ -8,7 +8,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/pkg/errors"
 	"github.com/urfave/cli/v2"
 )
 
@@ -465,7 +464,7 @@ func flagType(fieldType reflect.StructField) (TypeInterface, error) {
 			}
 		}
 	}
-	return nil, errors.Errorf("unsupported flag generator type: %s", fieldType.Type.String())
+	return nil, fmt.Errorf("unsupported flag generator type: %s", fieldType.Type.String())
 }
 
 func genericSliceConvert(convertInto, from reflect.Value, convertOne func(reflect.Value, reflect.Value) error) (err error) {

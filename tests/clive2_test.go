@@ -39,6 +39,10 @@ var colorStrings = []string{
 	Blue:  "Blue",
 }
 
+func (c *ColorT) Variants() []string {
+	return colorStrings
+}
+
 func (c ColorT) String() string {
 	return colorStrings[c]
 }
@@ -291,6 +295,7 @@ func TestBuild(t *testing.T) {
 					Name:    "color",
 					EnvVars: []string{"COLOR"},
 					Value:   "Blue",
+					Usage:   "possible values: [Red, Green, Blue]",
 				},
 			},
 			Commands: []*cli.Command{

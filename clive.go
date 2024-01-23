@@ -1,13 +1,13 @@
 package clive
 
 import (
+	"errors"
 	"fmt"
 	"reflect"
 	"strconv"
 	"strings"
 
 	"github.com/iancoleman/strcase"
-	"github.com/pkg/errors"
 	"github.com/urfave/cli/v2"
 )
 
@@ -20,6 +20,9 @@ type (
 	}
 	WithDescription interface {
 		Description() string
+	}
+	HasVariants interface {
+		Variants() []string
 	}
 )
 
@@ -179,6 +182,7 @@ func flagFromUnsetMethod(obj *reflect.Value, fieldType reflect.StructField, c *c
 
 func flagsForValue(obj *reflect.Value, objType reflect.Type, c *cli.Context) error {
 	args := c.Args().Slice()
+	hadPositionals := false
 	for i := 1; i < objType.NumField(); i++ {
 		fieldType := objType.Field(i)
 		if fieldType.Name == "Subcommands" || (fieldType.Name == "Run" && fieldType.Type == reflect.TypeOf((RunFunc)(nil))) {
@@ -194,6 +198,7 @@ func flagsForValue(obj *reflect.Value, objType reflect.Type, c *cli.Context) err
 		field := obj.FieldByName(fieldType.Name).Addr()
 		var setFrom string
 		if cmdMeta.Positional {
+			hadPositionals = true
 			if len(args) == 0 {
 				if !cmdMeta.Required {
 					if cmdMeta.Default != nil {
@@ -232,28 +237,13 @@ func flagsForValue(obj *reflect.Value, objType reflect.Type, c *cli.Context) err
 			}
 		}
 		if err != nil {
-			return errors.Wrap(err, fmt.Sprintf("failed to set field %s (type %s) from %s", fieldType.Name, fieldType.Type.String(), setFrom))
+			return fmt.Errorf("failed to set field %s (type %s) from %s: %s", fieldType.Name, fieldType.Type.String(), setFrom, err.Error())
 		}
 	}
-	return nil
-}
-
-// given a generic slice type, returns a reflected version of that slice with
-// all elements inserted.
-func genericSliceOf(slice interface{}) reflect.Value {
-	sliceValue := reflect.ValueOf(slice)
-	length := sliceValue.Len()
-	sliceAddr := reflect.New(reflect.MakeSlice(
-		reflect.TypeOf(slice),
-		length,
-		length,
-	).Type())
-	for i := 0; i < length; i++ {
-		value := sliceValue.Index(i)
-		ap := reflect.Append(sliceAddr.Elem(), value)
-		sliceAddr.Elem().Set(ap)
+	if hadPositionals && len(args) > 0 {
+		return fmt.Errorf("too many arguments: %d left unparsed: %s", len(args), strings.Join(args, " "))
 	}
-	return sliceAddr.Elem()
+	return nil
 }
 
 func build(objs ...interface{}) (c *cli.App, err error) {
@@ -284,10 +274,6 @@ func build(objs ...interface{}) (c *cli.App, err error) {
 		c.Flags = nil
 	}
 
-	// c.Before = func(ctx *cli.Context) error {
-	// 	log.Println("App before")
-	// 	return nil
-	// }
 	return
 }
 
@@ -503,7 +489,7 @@ func getCommand(fieldType reflect.StructField, fieldValue reflect.Value) (c *Com
 
 	cmdMeta, err := parseMeta(fieldType)
 	if err != nil {
-		return nil, errors.Wrap(err, "failed to read cmdMeta tag on the embedded clive.Command struct pointer")
+		return nil, fmt.Errorf("failed to read cmdMeta tag on the embedded clive.Command struct pointer: %s", err.Error())
 	}
 	if cmdMeta.Name != "" {
 		cmd.Name = cmdMeta.Name
@@ -555,7 +541,7 @@ func parseMeta(fieldType reflect.StructField) (cmdMeta commandMetadata, err erro
 			case "required":
 				cmdMeta.Required, err = strconv.ParseBool(keyValue[1])
 				if err != nil {
-					err = errors.Wrap(err, "failed to parse 'required' as a bool")
+					err = fmt.Errorf("failed to parse 'required' as a bool %s", err.Error())
 				}
 				requiredSetFromTags = true
 			case "env":
@@ -563,16 +549,18 @@ func parseMeta(fieldType reflect.StructField) (cmdMeta commandMetadata, err erro
 			case "hidden":
 				cmdMeta.Hidden, err = strconv.ParseBool(keyValue[1])
 				if err != nil {
-					err = errors.Wrap(err, "failed to parse 'hidden' as a bool")
+					err = fmt.Errorf("failed to parse 'hidden' as a bool %s", err.Error())
 				}
 			case "default":
 				cmdMeta.Default = new(string)
 				*cmdMeta.Default = keyValue[1]
+			case "entrypoint":
+
 			default:
-				err = errors.Errorf("unknown command tag: '%s:%s'", keyValue[0], keyValue[1])
+				err = fmt.Errorf("unknown command tag: '%s:%s'", keyValue[0], keyValue[1])
 			}
 		} else {
-			err = errors.Errorf("malformed tag: '%s'", section)
+			err = fmt.Errorf("malformed tag: '%s'", section)
 		}
 		if err != nil {
 			return
@@ -586,11 +574,25 @@ func parseMeta(fieldType reflect.StructField) (cmdMeta commandMetadata, err erro
 	if fieldType.Type != reflect.TypeOf((*Command)(nil)) {
 		cmdMeta.TypeInterface, err = flagType(fieldType)
 		if err != nil {
-			err = errors.Wrapf(err, "cant find type for %s field", cmdMeta.Name)
+			err = fmt.Errorf("cant find type for %s field: %s", cmdMeta.Name, err.Error())
 			return
 		}
 		if cmdMeta.Name == "" {
 			cmdMeta.Name = fieldType.Name
+		}
+		ft := fieldType.Type
+		for ft.Kind() == reflect.Pointer {
+			ft = ft.Elem()
+		}
+		ft = reflect.PointerTo(ft)
+		if ft.Implements(Reflected[HasVariants]()) {
+			vars := reflect.Zero(ft).Interface().(HasVariants).Variants()
+			var usageArr []string
+			if len(cmdMeta.Usage) > 0 {
+				usageArr = append(usageArr, cmdMeta.Usage)
+			}
+			usageArr = append(usageArr, fmt.Sprintf("possible values: [%s]", strings.Join(vars, ", ")))
+			cmdMeta.Usage = strings.Join(usageArr, ", ")
 		}
 	}
 	if cmdMeta.Name != "" {
