@@ -216,7 +216,7 @@ func TestBuild(t *testing.T) {
 	}
 	tests := []test{
 		{
-			panicErr: clive.NilError,
+			panicErr: clive.ErrNil,
 
 			objs: []interface{}{
 				nil,

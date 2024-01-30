@@ -12,8 +12,14 @@ import (
 )
 
 type (
+	HasBefore interface {
+		Before(*cli.Context) error
+	}
 	Actionable interface {
 		Action(*cli.Context) error
+	}
+	HasAfter interface {
+		After(*cli.Context) error
 	}
 	WithVersion interface {
 		Version() string
@@ -88,7 +94,7 @@ func (e *MethodNotFoundError) Error() string {
 	return fmt.Sprintf("flag required, but no suitable fallback method found (%s)", e.methodName)
 }
 
-var NilError = errors.New("obj is n ull")
+var ErrNil = errors.New("obj is n ull")
 
 type ByValueError struct {
 	Type string
@@ -328,7 +334,7 @@ type commandMetadata struct {
 
 func commandFromObject(c *cli.App, parentCommandPath string, obj interface{}) (*cli.Command, error) {
 	if obj == nil {
-		return nil, NilError
+		return nil, ErrNil
 	}
 
 	// recursively dereference
@@ -371,18 +377,30 @@ func commandFromObject(c *cli.App, parentCommandPath string, obj interface{}) (*
 	command.currentPath = commandPath
 
 	command.Before = func(ctx *cli.Context) error {
-		act := ctx.App.Metadata[commandPath].(Actionable)
+		obj := ctx.App.Metadata[commandPath]
+		act := obj.(Actionable)
 		flags, err := flagsForActionable(act, ctx)
 		if err == nil {
 			ctx.App.Metadata[commandPath] = flags
 		} else {
 			cli.ShowSubcommandHelp(ctx)
+			return err
+		}
+		if before, ok := obj.(HasBefore); ok {
+			err = before.Before(ctx)
 		}
 		return err
 	}
 	command.Command.Action = func(ctx *cli.Context) error {
 		act := ctx.App.Metadata[commandPath].(Actionable)
 		return act.Action(ctx)
+	}
+	command.Command.After = func(ctx *cli.Context) (err error) {
+		obj := ctx.App.Metadata[commandPath]
+		if after, ok := obj.(HasAfter); ok {
+			err = after.After(ctx)
+		}
+		return
 	}
 
 	act, ok := objValue.Addr().Interface().(Actionable)
