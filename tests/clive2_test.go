@@ -209,7 +209,7 @@ func (*App) Version() string {
 
 func TestBuild(t *testing.T) {
 	type test struct {
-		objs  []interface{}
+		obj   interface{}
 		wantC *cli.App
 
 		panicErr error
@@ -218,44 +218,34 @@ func TestBuild(t *testing.T) {
 		{
 			panicErr: clive.ErrNil,
 
-			objs: []interface{}{
-				nil,
-			},
+			obj: nil,
 		},
 		{
 			panicErr: &clive.ByValueError{Type: ""},
 
-			objs: []interface{}{
-				struct{}{},
-			},
+			obj: struct{}{},
 		},
 		{
 			panicErr: &clive.WrongFirstFieldError{NumFields: 0, FieldName: "", Type: ""},
 
-			objs: []interface{}{
-				&struct{}{},
-			},
+			obj: &struct{}{},
 		},
 		{
 			panicErr: &clive.WrongFirstFieldError{NumFields: 1, FieldName: "yay", Type: "int"},
 
-			objs: []interface{}{
-				&struct {
-					yay int
-				}{},
-			},
+			obj: &struct {
+				yay int
+			}{},
 		},
 
 		{
 			panicErr: &clive.PositionalAfterVariadicError{CurrentName: "pos-2", FirstName: "pos-1"},
 
-			objs: []interface{}{
-				&struct {
-					*clive.Command
-					pos1 []string `cli:"positional"`
-					pos2 []string `cli:"positional"`
-				}{},
-			},
+			obj: &struct {
+				*clive.Command
+				pos1 []string `cli:"positional"`
+				pos2 []string `cli:"positional"`
+			}{},
 		},
 	}
 
@@ -263,9 +253,7 @@ func TestBuild(t *testing.T) {
 
 	app := &App{}
 	tests = append(tests, test{
-		objs: []interface{}{
-			app,
-		},
+		obj: app,
 		wantC: &cli.App{
 			Name: "tests.test",
 			// HelpName: "clive.test",
@@ -363,14 +351,20 @@ func TestBuild(t *testing.T) {
 		Uint64  uint64
 		Uint    uint
 	}
-	c1 := &C1{}
-	c2 := &C2{}
+
+	type C12 struct {
+		*clive.Command
+		Subcommands struct {
+			*C1
+			*C2
+		}
+	}
 	tests = append(tests, test{
-		objs: []interface{}{c1, c2},
+		obj: &C12{},
 		wantC: &cli.App{
 			Name: "tests.test",
 			// HelpName: "clive.test",
-			Usage: "A new cli application",
+			Usage: "",
 			// Version:  "0.0.0",
 			HideHelpCommand: true,
 			Commands: []*cli.Command{
@@ -398,6 +392,7 @@ func TestBuild(t *testing.T) {
 					HideHelpCommand: true,
 				},
 			},
+			Flags:     []cli.Flag{},
 			Reader:    os.Stdin,
 			Writer:    os.Stdout,
 			ErrWriter: os.Stderr,
@@ -408,9 +403,9 @@ func TestBuild(t *testing.T) {
 		t.Run(fmt.Sprint(ii), func(t *testing.T) {
 			var gotC *cli.App
 			if tt.panicErr == nil {
-				gotC = clive.Build(tt.objs...)
+				gotC = clive.Build(tt.obj)
 			} else {
-				assert.PanicsWithError(t, tt.panicErr.Error(), func() { gotC = clive.Build(tt.objs...) }, "this test should panic")
+				assert.PanicsWithError(t, tt.panicErr.Error(), func() { gotC = clive.Build(tt.obj) }, "this test should panic")
 				return
 			}
 
@@ -423,6 +418,7 @@ func TestBuild(t *testing.T) {
 			// function pointers don't compare properly at all for some reason
 			gotC.Before = nil
 			gotC.Action = nil
+			gotC.After = nil
 
 			// dont check Metadata (used internally)
 			gotC.Metadata = nil
@@ -433,6 +429,7 @@ func TestBuild(t *testing.T) {
 				next := queue[0]
 				next.Action = nil
 				next.Before = nil
+				next.After = nil
 				queue = append(queue, next.Subcommands...)
 			}
 

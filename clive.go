@@ -12,6 +12,9 @@ import (
 )
 
 type (
+	HasSubcommand interface {
+		Subcommand(c *cli.App, parentCommandPath string) *cli.Command
+	}
 	HasBefore interface {
 		Before(*cli.Context) error
 	}
@@ -78,12 +81,25 @@ func (c *Command) Action(ctx *cli.Context) error {
 	if c.run != nil {
 		return c.run(c, ctx)
 	}
-	if ctx.Command != nil {
-		cli.ShowAppHelp(ctx)
+
+	root := c.Root(ctx)
+	current := c.Current(ctx)
+
+	var err error
+	if root == current {
+		err = cli.ShowAppHelp(ctx)
 	} else {
-		cli.ShowSubcommandHelp(ctx)
+		parent := c.Parent(ctx)
+		if parent == root {
+			err = cli.ShowSubcommandHelp(ctx)
+		} else {
+			err = cli.ShowSubcommandHelp(ctx)
+		}
 	}
-	return ErrCommandNotImplemented()
+	if err == nil {
+		err = ErrCommandNotImplemented()
+	}
+	return err
 }
 
 type MethodNotFoundError struct {
@@ -149,8 +165,8 @@ func (e *PositionalAfterVariadicError) Error() string {
 // that is compile-time only - it does not return an error but instead panics.
 // The idea is you will do all your setup once and as long as it doesn't change
 // this will never break, so there is little need to pass errors back.
-func Build(objs ...interface{}) (c *cli.App) {
-	c, err := build(objs...)
+func Build(obj interface{}) (c *cli.App) {
+	c, err := build(obj)
 	if err != nil {
 		panic(err)
 	}
@@ -252,34 +268,32 @@ func flagsForValue(obj *reflect.Value, objType reflect.Type, c *cli.Context) err
 	return nil
 }
 
-func build(objs ...interface{}) (c *cli.App, err error) {
+func build(obj interface{}) (c *cli.App, err error) {
 	c = cli.NewApp()
 	c.Metadata = make(map[string]interface{})
 	c.HideHelpCommand = true
 
-	commands, err := buildCommands(c, "", objs...)
+	commands, err := buildCommands(c, "", obj)
 	if err != nil {
 		return
 	}
 
 	// if it's a one-command application, there's no need for a subcommand so
 	// just move the command's contents into the root object, aka the 'App'
-	if len(commands) == 1 {
-		c.Usage = commands[0].Usage
-		c.Description = commands[0].Description
-		c.Before = commands[0].Before
-		c.Action = commands[0].Action
-		c.Flags = commands[0].Flags
-		c.Commands = commands[0].Subcommands
-		c.Metadata["cliveRoot"] = objs[0]
-		if versioned, ok := objs[0].(WithVersion); ok {
-			c.Version = versioned.Version()
-		}
-	} else {
-		c.Commands = commands
-		c.Flags = nil
+	if len(commands) != 1 {
+		panic("this should never happen")
 	}
-
+	command := commands[0]
+	c.Usage = command.Usage
+	c.Description = command.Description
+	c.Before = command.Before
+	c.Action = command.Action
+	c.Flags = command.Flags
+	c.Commands = command.Subcommands
+	c.Metadata["cliveRoot"] = obj
+	if versioned, ok := obj.(WithVersion); ok {
+		c.Version = versioned.Version()
+	}
 	return
 }
 
@@ -333,6 +347,9 @@ type commandMetadata struct {
 }
 
 func commandFromObject(c *cli.App, parentCommandPath string, obj interface{}) (*cli.Command, error) {
+	if sc, ok := obj.(HasSubcommand); ok {
+		return sc.Subcommand(c, parentCommandPath), nil
+	}
 	if obj == nil {
 		return nil, ErrNil
 	}
