@@ -102,14 +102,6 @@ func (c *Command) Action(ctx *cli.Context) error {
 	return err
 }
 
-type MethodNotFoundError struct {
-	methodName string
-}
-
-func (e *MethodNotFoundError) Error() string {
-	return fmt.Sprintf("flag required, but no suitable fallback method found (%s)", e.methodName)
-}
-
 var ErrNil = errors.New("obj is n ull")
 
 type ByValueError struct {
@@ -187,21 +179,6 @@ func flagsForActionable(act Actionable, c *cli.Context) (Actionable, error) {
 	return act, err
 }
 
-func flagFromUnsetMethod(obj *reflect.Value, fieldType reflect.StructField, c *cli.Context) (err error) {
-	methodName := "On" + fieldType.Name + "Unset"
-	unset := obj.Addr().MethodByName(methodName)
-	if unset.IsValid() && unset.CanInterface() {
-		if unsetFunc, set := unset.Interface().(func() error); set {
-			err = unsetFunc()
-		} else if unsetFunc, set := unset.Interface().(func(*cli.Context) error); set {
-			err = unsetFunc(c)
-		} else {
-			err = &MethodNotFoundError{methodName: methodName}
-		}
-	}
-	return
-}
-
 func flagsForValue(obj *reflect.Value, objType reflect.Type, c *cli.Context) error {
 	args := c.Args().Slice()
 	hadPositionals := false
@@ -210,56 +187,60 @@ func flagsForValue(obj *reflect.Value, objType reflect.Type, c *cli.Context) err
 		if fieldType.Name == "Subcommands" || (fieldType.Name == "Run" && fieldType.Type == reflect.TypeOf((RunFunc)(nil))) {
 			continue
 		}
-		cmdMeta, err := parseMeta(fieldType)
+		var flieldMetadata []commandMetadata
+		err := parseFieldOrPositional("", []int{i}, fieldType, &flieldMetadata, &flieldMetadata)
 		if err != nil {
 			return err
 		}
-		if cmdMeta.Skipped {
-			continue
-		}
-		field := obj.FieldByName(fieldType.Name).Addr()
-		var setFrom string
-		if cmdMeta.Positional {
-			hadPositionals = true
-			if len(args) == 0 {
-				if !cmdMeta.Required {
-					if cmdMeta.Default != nil {
-						err = cmdMeta.SetValueFromString(field, *cmdMeta.Default)
-						if err != nil {
-							setFrom = fmt.Sprintf("from default value %s", *cmdMeta.Default)
+		for _, cmdMeta := range flieldMetadata {
+			if cmdMeta.Skipped {
+				continue
+			}
+			currentObj := obj.Addr()
+			var currentField reflect.Value
+			for accessIndex, fieldIndex := range cmdMeta.Accesses {
+				if accessIndex > 0 {
+					currentObj = currentField
+				}
+				currentField = currentObj.Elem().Field(fieldIndex).Addr()
+			}
+			var setFrom string
+			if cmdMeta.Positional {
+				hadPositionals = true
+				if len(args) == 0 {
+					if !cmdMeta.Required {
+						if cmdMeta.Default != nil {
+							err = cmdMeta.SetValueFromString(currentField, *cmdMeta.Default)
+							if err != nil {
+								setFrom = fmt.Sprintf("from default value %s", *cmdMeta.Default)
+							}
 						}
-					}
-					err = flagFromUnsetMethod(obj, fieldType, c)
-					if err != nil {
-						setFrom = "from fallback method"
+					} else {
+						err = errors.New("too few positional arguments")
 					}
 				} else {
-					err = errors.New("too few positional arguments")
+					if cmdMeta.IsVariadic() {
+						err = cmdMeta.SetValueFromStrings(currentField, args)
+						args = []string{}
+					} else {
+						err = cmdMeta.SetValueFromString(currentField, args[0])
+						args = args[1:]
+					}
+				}
+				if err != nil {
+					setFrom = fmt.Sprintf("positional argument %s %s", strcase.ToScreamingSnake(cmdMeta.Name), setFrom)
 				}
 			} else {
-				if cmdMeta.IsVariadic() {
-					err = cmdMeta.SetValueFromStrings(field, args)
-					args = []string{}
-				} else {
-					err = cmdMeta.SetValueFromString(field, args[0])
-					args = args[1:]
+				if c.IsSet(cmdMeta.Name) || cmdMeta.Default != nil {
+					err = cmdMeta.SetValueFromContext(currentField, cmdMeta.Name, c)
+				}
+				if err != nil {
+					setFrom = fmt.Sprintf("from flag %s", cmdMeta.Name)
 				}
 			}
 			if err != nil {
-				setFrom = fmt.Sprintf("positional argument %s %s", strcase.ToScreamingSnake(cmdMeta.Name), setFrom)
+				return fmt.Errorf("failed to set field %s (type %s) from %s: %s", fieldType.Name, fieldType.Type.String(), setFrom, err.Error())
 			}
-		} else {
-			if c.IsSet(cmdMeta.Name) || cmdMeta.Default != nil {
-				err = cmdMeta.SetValueFromContext(field, cmdMeta.Name, c)
-			} else {
-				err = flagFromUnsetMethod(obj, fieldType, c)
-			}
-			if err != nil {
-				setFrom = fmt.Sprintf("from flag %s", cmdMeta.Name)
-			}
-		}
-		if err != nil {
-			return fmt.Errorf("failed to set field %s (type %s) from %s: %s", fieldType.Name, fieldType.Type.String(), setFrom, err.Error())
 		}
 	}
 	if hadPositionals && len(args) > 0 {
@@ -317,9 +298,19 @@ func buildSubcommands(c *cli.App, parentCommandPath string, subcommandsField ref
 
 	subcommandsType := subcommandsFieldValue.Type()
 	var subcommands = make([]interface{}, 0, subcommandsType.NumField())
+	var cmds []*cli.Command
 	for i := 0; i < subcommandsType.NumField(); i++ {
 		subcommandFieldType := subcommandsType.Field(i)
 		subcommand := subcommandsFieldValue.Field(i)
+		if subcommandFieldType.Type.Kind() == reflect.Struct {
+			cmds, err = buildSubcommands(c, parentCommandPath, subcommand)
+			if err != nil {
+				return
+			}
+			commands = append(commands, cmds...)
+			continue
+		}
+
 		if subcommandFieldType.Type.Kind() != reflect.Pointer {
 			return nil, fmt.Errorf("type of subcommand (%s) for %s is passed by value, not by reference", subcommandFieldType.Type.Name(), parentCommandPath)
 		}
@@ -331,7 +322,12 @@ func buildSubcommands(c *cli.App, parentCommandPath string, subcommandsField ref
 		}
 		subcommands = append(subcommands, subcommand.Interface())
 	}
-	return buildCommands(c, parentCommandPath, subcommands...)
+	cmds, err = buildCommands(c, parentCommandPath, subcommands...)
+	if err != nil {
+		return
+	}
+	commands = append(commands, cmds...)
+	return
 }
 
 type commandMetadata struct {
@@ -343,7 +339,9 @@ type commandMetadata struct {
 	Default    *string
 	Skipped    bool
 	Positional bool
+	Inline     bool
 	Required   bool
+	Accesses   []int
 }
 
 func commandFromObject(c *cli.App, parentCommandPath string, obj interface{}) (*cli.Command, error) {
@@ -431,6 +429,7 @@ func commandFromObject(c *cli.App, parentCommandPath string, obj interface{}) (*
 	}
 
 	var positionals []commandMetadata
+	var flags []commandMetadata
 
 	for i := 1; i < objType.NumField(); i++ {
 		fieldType := objType.Field(i)
@@ -445,28 +444,15 @@ func commandFromObject(c *cli.App, parentCommandPath string, obj interface{}) (*
 			command.run = objValue.Field(i).Interface().(RunFunc)
 			continue
 		}
-
-		var cmdMeta commandMetadata
-		cmdMeta, err = parseMeta(fieldType)
+		parseFieldOrPositional("", nil, fieldType, &positionals, &flags)
+	}
+	for _, flagMeta := range flags {
+		var flag cli.Flag
+		flag, err = flagMeta.NewFlag(flagMeta)
 		if err != nil {
 			return nil, err
 		}
-		if cmdMeta.Skipped {
-			continue
-		}
-
-		if cmdMeta.Positional {
-			positionals = append(positionals, cmdMeta)
-		} else {
-			// automatically turn fields that begin with Flag into cli.Flag objects
-			var flag cli.Flag
-			flag, err = cmdMeta.NewFlag(cmdMeta)
-			if err != nil {
-				return nil, err
-			}
-
-			command.Flags = append(command.Flags, flag)
-		}
+		command.Flags = append(command.Flags, flag)
 	}
 	command.Args = len(positionals) != 0
 	optionalStarted := false
@@ -522,7 +508,7 @@ func getCommand(fieldType reflect.StructField, fieldValue reflect.Value) (c *Com
 		cmd.Command = &cli.Command{}
 	}
 
-	cmdMeta, err := parseMeta(fieldType)
+	cmdMeta, err := parseMeta("", nil, fieldType)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read cmdMeta tag on the embedded clive.Command struct pointer: %s", err.Error())
 	}
@@ -535,7 +521,47 @@ func getCommand(fieldType reflect.StructField, fieldValue reflect.Value) (c *Com
 	return cmd, nil
 }
 
-func parseMeta(fieldType reflect.StructField) (cmdMeta commandMetadata, err error) {
+func parseFieldOrPositional(prefix string, accesses []int, fieldType reflect.StructField, positionals *[]commandMetadata, flags *[]commandMetadata) (err error) {
+	var cmdMeta commandMetadata
+	cmdMeta, err = parseMeta(prefix, accesses, fieldType)
+	if err != nil {
+		return
+	}
+	if cmdMeta.Skipped {
+		return
+	}
+	if cmdMeta.Inline {
+		structType := fieldType.Type
+		if structType.Kind() != reflect.Struct {
+			err = fmt.Errorf("inline field %s is not a struct", fieldType.Name)
+			return
+		}
+		for i := 0; i < structType.NumField(); i++ {
+			fT := structType.Field(i)
+
+			fAccesses := make([]int, len(cmdMeta.Accesses)+1)
+			copy(fAccesses, cmdMeta.Accesses)
+			fAccesses[len(fAccesses)-1] = i
+
+			err = parseFieldOrPositional(cmdMeta.Name, fAccesses, fT, positionals, flags)
+			if err != nil {
+				err = fmt.Errorf("parsing inline field %s: %w", fieldType.Name, err)
+				return
+			}
+		}
+		return
+	}
+
+	if cmdMeta.Positional {
+		*positionals = append(*positionals, cmdMeta)
+	} else {
+		// automatically turn fields that begin with Flag into cli.Flag objects
+		*flags = append(*flags, cmdMeta)
+	}
+	return
+}
+
+func parseMeta(prefix string, accesses []int, fieldType reflect.StructField) (cmdMeta commandMetadata, err error) {
 	s := fieldType.Tag.Get("cli")
 
 	cmdMeta.Skipped = false
@@ -543,6 +569,7 @@ func parseMeta(fieldType reflect.StructField) (cmdMeta commandMetadata, err erro
 		cmdMeta.Skipped = true
 		return cmdMeta, err
 	}
+	cmdMeta.Accesses = accesses
 	cmdMeta.Required = false
 	cmdMeta.Positional = false
 	// this code allows strings to be placed inside single-quotes in order to
@@ -563,6 +590,10 @@ func parseMeta(fieldType reflect.StructField) (cmdMeta commandMetadata, err erro
 	for _, section := range sections {
 		if section == "positional" {
 			cmdMeta.Positional = true
+			continue
+		}
+		if section == "inline" {
+			cmdMeta.Inline = true
 			continue
 		}
 		keyValue := strings.SplitN(section, ":", 2)
@@ -590,7 +621,6 @@ func parseMeta(fieldType reflect.StructField) (cmdMeta commandMetadata, err erro
 				cmdMeta.Default = new(string)
 				*cmdMeta.Default = keyValue[1]
 			case "entrypoint":
-
 			default:
 				err = fmt.Errorf("unknown command tag: '%s:%s'", keyValue[0], keyValue[1])
 			}
@@ -607,10 +637,12 @@ func parseMeta(fieldType reflect.StructField) (cmdMeta commandMetadata, err erro
 		}
 	}
 	if fieldType.Type != reflect.TypeOf((*Command)(nil)) {
-		cmdMeta.TypeInterface, err = flagType(fieldType)
-		if err != nil {
-			err = fmt.Errorf("cant find type for %s field: %s", cmdMeta.Name, err.Error())
-			return
+		if !cmdMeta.Inline {
+			cmdMeta.TypeInterface, err = flagType(fieldType)
+			if err != nil {
+				err = fmt.Errorf("cant find type for %s field: %s", cmdMeta.Name, err.Error())
+				return
+			}
 		}
 		if cmdMeta.Name == "" {
 			cmdMeta.Name = fieldType.Name
@@ -629,6 +661,9 @@ func parseMeta(fieldType reflect.StructField) (cmdMeta commandMetadata, err erro
 			usageArr = append(usageArr, fmt.Sprintf("possible values: [%s]", strings.Join(vars, ", ")))
 			cmdMeta.Usage = strings.Join(usageArr, ", ")
 		}
+	}
+	if prefix != "" {
+		cmdMeta.Name = prefix + "-" + cmdMeta.Name
 	}
 	if cmdMeta.Name != "" {
 		cmdMeta.Name = strcase.ToKebab(cmdMeta.Name)

@@ -118,6 +118,9 @@ var roleStrings = []string{
 func (c Role) String() string {
 	return roleStrings[c]
 }
+func (c *Role) Variants() []string {
+	return roleStrings
+}
 
 func (c *Role) UnmarshalText(text []byte) error {
 	for i, variant := range roleStrings {
@@ -147,12 +150,21 @@ type SetOption struct {
 	Value Json   `cli:"positional"`
 }
 
+type ComposedOption struct {
+	Role Role
+	Port int
+}
+
+type StartStop struct {
+	*Start
+	*Stop
+}
+
 type App struct {
 	*clive.Command `cli:"name:'testCli',usage:'test command'"`
 
 	Subcommands struct {
-		*Start
-		*Stop
+		StartStop
 		Config *struct {
 			*clive.Command `cli:"name:'config',usage:'configure system'"`
 
@@ -168,7 +180,10 @@ type App struct {
 	ProcessSchedule       string  `cli:"hidden:true"`
 	ApplicationAPIAddress *string `cli:"name:api_address"`
 	Uints64               []uint64
-	Color                 ColorT `cli:"default:Blue"`
+
+	Color  ColorT         `cli:"default:Blue"`
+	Input  ComposedOption `cli:"inline"`
+	Output ComposedOption `cli:"inline"`
 }
 
 func (*App) Version() string {
@@ -284,6 +299,25 @@ func TestBuild(t *testing.T) {
 					EnvVars: []string{"COLOR"},
 					Value:   "Blue",
 					Usage:   "possible values: [Red, Green, Blue]",
+				},
+
+				&cli.StringFlag{
+					Name:    "input-role",
+					EnvVars: []string{"INPUT_ROLE"},
+					Usage:   "possible values: [server, client]",
+				},
+				&cli.IntFlag{
+					Name:    "input-port",
+					EnvVars: []string{"INPUT_PORT"},
+				},
+				&cli.StringFlag{
+					Name:    "output-role",
+					EnvVars: []string{"OUTPUT_ROLE"},
+					Usage:   "possible values: [server, client]",
+				},
+				&cli.IntFlag{
+					Name:    "output-port",
+					EnvVars: []string{"OUTPUT_PORT"},
 				},
 			},
 			Commands: []*cli.Command{
@@ -496,6 +530,8 @@ func TestRunAll(t *testing.T) {
 		String   string
 		Duration time.Duration
 		Color    ColorT
+		Input    ComposedOption `cli:"inline"`
+		Output   ComposedOption `cli:"inline"`
 		Ints     []int
 		Ints64   []int64
 		Uints    []uint
@@ -520,6 +556,10 @@ func TestRunAll(t *testing.T) {
 			assert.Equal(t, "thing", flags.String)
 			assert.Equal(t, time.Hour+(time.Minute*5)+(time.Second*10), flags.Duration)
 			assert.Equal(t, Red, flags.Color)
+			assert.Equal(t, Server, flags.Input.Role)
+			assert.Equal(t, 81234, flags.Input.Port)
+			assert.Equal(t, Client, flags.Output.Role)
+			assert.Equal(t, 81235, flags.Output.Port)
 			assert.Equal(t, []int{9, 223, 372, 36, 854, 775, 807}, flags.Ints)
 			assert.Equal(t, []int64{9123372036854775801, 223, 372, 36, 854, 775, 807}, flags.Ints64)
 			assert.Equal(t, []uint{4294967295}, flags.Uints)
@@ -541,6 +581,10 @@ func TestRunAll(t *testing.T) {
 			"--string=thing",
 			"--duration=1h5m10s",
 			"--color=Red",
+			"--input-role=server",
+			"--input-port=81234",
+			"--output-role=client",
+			"--output-port=81235",
 			"--ints=9",
 			"--ints=223",
 			"--ints=372",
@@ -586,12 +630,16 @@ func TestRunAll(t *testing.T) {
 		Uints64  *[]uint64
 		Strings  *[]string
 		Color    *ColorT
+
+		UnspecifiedInt *int
 	}
 	tests = append(tests, test{
 		name: "all flags",
 		obj: &TflagsPtr{Run: func(c *clive.Command, ctx *cli.Context) error {
 			flags, ok := c.Current(ctx).(*TflagsPtr)
 			assert.True(t, ok)
+
+			assert.Equal(t, (*int)(nil), flags.UnspecifiedInt)
 
 			assert.NotEqual(t, (*int)(nil), flags.Int)
 			assert.NotEqual(t, (*int64)(nil), flags.Int64)
