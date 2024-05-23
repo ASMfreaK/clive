@@ -435,6 +435,32 @@ func TestBuild(t *testing.T) {
 		},
 	})
 
+	countObj := &struct {
+		*clive.Command
+		Silent clive.Counter `cli:"alias:s"`
+	}{}
+	tests = append(tests, test{
+		obj: countObj,
+		wantC: &cli.App{
+			Name: "tests.test",
+			// HelpName: "clive.test",
+			Usage: "",
+			// Version:  "0.0.0",
+			HideHelpCommand: true,
+			Flags: []cli.Flag{
+				&cli.BoolFlag{
+					Name:    "silent",
+					Aliases: []string{"s"},
+					EnvVars: []string{"SILENT"},
+					Count:   &countObj.Silent.Value,
+				},
+			},
+			Reader:    os.Stdin,
+			Writer:    os.Stdout,
+			ErrWriter: os.Stderr,
+		},
+	})
+
 	for ii, tt := range tests {
 		t.Run(fmt.Sprint(ii), func(t *testing.T) {
 			var gotC *cli.App
@@ -1094,6 +1120,54 @@ func TestRunAll(t *testing.T) {
 			"Red",
 			"Green",
 			"Blue",
+		},
+	})
+
+	type Tcounter struct {
+		*clive.Command `cli:"shortOpt"`
+
+		Run    clive.RunFunc
+		Silent clive.Counter `cli:"alias:s"`
+	}
+
+	tests = append(tests, test{
+		name: "counter none",
+		obj: &Tcounter{Run: func(c *clive.Command, ctx *cli.Context) error {
+			flags, ok := c.Current(ctx).(*Tcounter)
+			assert.True(t, ok)
+			assert.Equal(t, 0, flags.Silent.Value)
+			return nil
+		}},
+		args: []string{
+			"",
+		},
+	})
+
+	tests = append(tests, test{
+		name: "counter some",
+		obj: &Tcounter{Run: func(c *clive.Command, ctx *cli.Context) error {
+			flags, ok := c.Current(ctx).(*Tcounter)
+			assert.True(t, ok)
+			assert.Equal(t, 2, flags.Silent.Value)
+			return nil
+		}},
+		args: []string{
+			"",
+			"--silent", "--silent",
+		},
+	})
+
+	tests = append(tests, test{
+		name: "counter some",
+		obj: &Tcounter{Run: func(c *clive.Command, ctx *cli.Context) error {
+			flags, ok := c.Current(ctx).(*Tcounter)
+			assert.True(t, ok)
+			assert.Equal(t, 3, flags.Silent.Value)
+			return nil
+		}},
+		args: []string{
+			"",
+			"-sss",
 		},
 	})
 

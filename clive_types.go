@@ -11,6 +11,10 @@ import (
 	"github.com/urfave/cli/v2"
 )
 
+type Counter struct {
+	Value int
+}
+
 type TypePredicate interface {
 	Predicate(reflect.Type) bool
 }
@@ -91,6 +95,8 @@ func contextFunction[T any]() (ret func(ret *T, ctx *cli.Context, s string) erro
 		*rv = func(ret *time.Duration, ctx *cli.Context, s string) (err error) { *ret = ctx.Duration(s); return }
 	case *func(*bool, *cli.Context, string) error:
 		*rv = func(ret *bool, ctx *cli.Context, s string) (err error) { *ret = ctx.Bool(s); return }
+	case *func(*Counter, *cli.Context, string) error:
+		*rv = func(ret *Counter, ctx *cli.Context, s string) (err error) { ret.Value = ctx.Count(s); return }
 	// slices
 	case *func(*[]int, *cli.Context, string) error:
 		*rv = func(ret *[]int, ctx *cli.Context, s string) (err error) { *ret = ctx.IntSlice(s); return }
@@ -163,6 +169,13 @@ func parseStandartTypes[T any](ret *T, s string) (err error) {
 		*rv, err = time.ParseDuration(s)
 	case *bool:
 		*rv, err = strconv.ParseBool(s)
+	case *Counter:
+		var def int64
+		def, err = strconv.ParseInt(s, 0, bits[int]())
+		if err != nil {
+			return
+		}
+		rv.Value = int(def)
 	// case encoding.TextUnmarshaler:
 	// 	err = rv.UnmarshalText([]byte(s))
 
@@ -299,6 +312,10 @@ func newFlag[T any, Flag any](cmdMeta commandMetadata) (flag cli.Flag, err error
 	}
 	refTypedFlag.Elem().FieldByName("Hidden").SetBool(cmdMeta.Hidden)
 	refTypedFlag.Elem().FieldByName("Usage").SetString(cmdMeta.Usage)
+
+	if Reflected[T]() == Reflected[Counter]() {
+		refTypedFlag.Elem().FieldByName("Count").Set(reflect.New(Reflected[int]()))
+	}
 
 	flag = refTypedFlag.Interface().(cli.Flag)
 	return
@@ -516,6 +533,7 @@ var types = []TypeInterface{
 	NewStandardType[[]string, cli.StringSliceFlag](),
 	NewStandardType[[]time.Duration, cli.StringSliceFlag](),
 	NewStandardType[[]bool, cli.StringSliceFlag](),
+	NewStandardType[Counter, cli.BoolFlag](),
 	&InterfaceType{
 		interfaceType: Reflected[encoding.TextUnmarshaler](),
 

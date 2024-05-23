@@ -275,6 +275,7 @@ func build(obj interface{}) (c *cli.App, err error) {
 	if versioned, ok := obj.(WithVersion); ok {
 		c.Version = versioned.Version()
 	}
+	c.UseShortOptionHandling = command.UseShortOptionHandling
 	return
 }
 
@@ -343,6 +344,8 @@ type commandMetadata struct {
 	Inline     bool
 	Required   bool
 	Accesses   []int
+
+	UseShortOptions bool
 }
 
 func commandFromObject(c *cli.App, parentCommandPath string, obj interface{}) (*cli.Command, error) {
@@ -485,6 +488,7 @@ func commandFromObject(c *cli.App, parentCommandPath string, obj interface{}) (*
 	}
 	command.ArgsUsage = strings.Join(positionalUsage, " ")
 	command.HideHelpCommand = true
+
 	return command.Command, nil
 }
 
@@ -517,7 +521,9 @@ func getCommand(fieldType reflect.StructField, fieldValue reflect.Value) (c *Com
 		cmd.Name = cmdMeta.Name
 	}
 	cmd.Usage = cmdMeta.Usage
+	cmd.Aliases = cmdMeta.Aliases
 	cmd.Flags = []cli.Flag{}
+	cmd.UseShortOptionHandling = cmdMeta.UseShortOptions
 
 	return cmd, nil
 }
@@ -573,6 +579,7 @@ func parseMeta(prefix string, accesses []int, fieldType reflect.StructField) (cm
 	cmdMeta.Accesses = accesses
 	cmdMeta.Required = false
 	cmdMeta.Positional = false
+	cmdMeta.UseShortOptions = false
 	// this code allows strings to be placed inside single-quotes in order to
 	// escape comma characters.
 	quotes := false
@@ -595,6 +602,15 @@ func parseMeta(prefix string, accesses []int, fieldType reflect.StructField) (cm
 		}
 		if section == "inline" {
 			cmdMeta.Inline = true
+			continue
+		}
+		if section == "required" {
+			cmdMeta.Required = true
+			requiredSetFromTags = true
+			continue
+		}
+		if section == "shortOpt" {
+			cmdMeta.UseShortOptions = true
 			continue
 		}
 		keyValue := strings.SplitN(section, ":", 2)
@@ -624,6 +640,11 @@ func parseMeta(prefix string, accesses []int, fieldType reflect.StructField) (cm
 				cmdMeta.Default = new(string)
 				*cmdMeta.Default = keyValue[1]
 			case "entrypoint":
+			case "shortOpt":
+				cmdMeta.UseShortOptions, err = strconv.ParseBool(keyValue[1])
+				if err != nil {
+					err = fmt.Errorf("failed to parse 'shortOpt' as a bool %s", err.Error())
+				}
 			default:
 				err = fmt.Errorf("unknown command tag: '%s:%s'", keyValue[0], keyValue[1])
 			}
