@@ -228,6 +228,8 @@ func TestBuild(t *testing.T) {
 		wantC *cli.App
 
 		panicErr error
+
+		options *clive.BuildOptions
 	}
 	tests := []test{
 		{
@@ -385,7 +387,7 @@ func TestBuild(t *testing.T) {
 		String  string
 		Strings []string
 		Uint64  uint64
-		Uint    uint
+		Uint    uint `cli:"env:'ABC,CAB'"`
 	}
 
 	type C12 struct {
@@ -423,7 +425,50 @@ func TestBuild(t *testing.T) {
 						&cli.StringFlag{Name: "string", EnvVars: []string{"STRING"}},
 						&cli.StringSliceFlag{Name: "strings", EnvVars: []string{"STRINGS"}},
 						&cli.Uint64Flag{Name: "uint-64", EnvVars: []string{"UINT_64"}},
-						&cli.UintFlag{Name: "uint", EnvVars: []string{"UINT"}},
+						&cli.UintFlag{Name: "uint", EnvVars: []string{"ABC", "CAB"}},
+					},
+					HideHelpCommand: true,
+				},
+			},
+			Flags:     []cli.Flag{},
+			Reader:    os.Stdin,
+			Writer:    os.Stdout,
+			ErrWriter: os.Stderr,
+		},
+	})
+
+	tests = append(tests, test{
+		obj: &C12{},
+		options: &clive.BuildOptions{
+			EnvPrefix: "C12",
+		},
+		wantC: &cli.App{
+			Name: "tests.test",
+			// HelpName: "clive.test",
+			Usage: "",
+			// Version:  "0.0.0",
+			HideHelpCommand: true,
+			Commands: []*cli.Command{
+				{
+					Name: "c1",
+					Flags: []cli.Flag{
+						&cli.BoolFlag{Name: "bool", EnvVars: []string{"C12_BOOL"}},
+						&cli.DurationFlag{Name: "duration", EnvVars: []string{"C12_DURATION"}},
+						&cli.Float64Flag{Name: "float-64", EnvVars: []string{"C12_FLOAT_64"}},
+						&cli.Int64Flag{Name: "int-64", EnvVars: []string{"C12_INT_64"}},
+						&cli.IntFlag{Name: "int", EnvVars: []string{"C12_INT"}},
+					},
+					HideHelpCommand: true,
+				},
+				{
+					Name: "c2",
+					Flags: []cli.Flag{
+						&cli.IntSliceFlag{Name: "ints", EnvVars: []string{"C12_INTS"}},
+						&cli.Int64SliceFlag{Name: "ints-64", EnvVars: []string{"C12_INTS_64"}},
+						&cli.StringFlag{Name: "string", EnvVars: []string{"C12_STRING"}},
+						&cli.StringSliceFlag{Name: "strings", EnvVars: []string{"C12_STRINGS"}},
+						&cli.Uint64Flag{Name: "uint-64", EnvVars: []string{"C12_UINT_64"}},
+						&cli.UintFlag{Name: "uint", EnvVars: []string{"ABC", "CAB"}},
 					},
 					HideHelpCommand: true,
 				},
@@ -465,7 +510,11 @@ func TestBuild(t *testing.T) {
 		t.Run(fmt.Sprint(ii), func(t *testing.T) {
 			var gotC *cli.App
 			if tt.panicErr == nil {
-				gotC = clive.Build(tt.obj)
+				if tt.options == nil {
+					gotC = clive.Build(tt.obj)
+				} else {
+					gotC = clive.BuildCustom(tt.obj, *tt.options)
+				}
 			} else {
 				assert.PanicsWithError(t, tt.panicErr.Error(), func() { gotC = clive.Build(tt.obj) }, "this test should panic")
 				return

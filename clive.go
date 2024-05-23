@@ -152,20 +152,32 @@ func (e *PositionalAfterVariadicError) Error() string {
 	return fmt.Sprintf("cant add positional argument %s after variadic (slice of x) argument %s", e.CurrentName, e.FirstName)
 }
 
+type BuildOptions struct {
+	EnvPrefix string
+}
+
+var DefaultBuildOptions = BuildOptions{
+	EnvPrefix: "",
+}
+
 // Build constructs a urfave/cli App from an instance of a decorated struct
 // Since it is designed to be used 1. on initialization and; 2. with static data
 // that is compile-time only - it does not return an error but instead panics.
 // The idea is you will do all your setup once and as long as it doesn't change
 // this will never break, so there is little need to pass errors back.
 func Build(obj interface{}) (c *cli.App) {
-	c, err := build(obj)
+	return BuildCustom(obj, DefaultBuildOptions)
+}
+
+func BuildCustom(obj interface{}, o BuildOptions) (c *cli.App) {
+	c, err := build(obj, &o)
 	if err != nil {
 		panic(err)
 	}
 	return
 }
 
-func flagsForActionable(act Actionable, c *cli.Context) (Actionable, error) {
+func flagsForActionable(act Actionable, c *cli.Context, bo *BuildOptions) (Actionable, error) {
 
 	objValue := reflect.ValueOf(act)
 	for objValue.Kind() == reflect.Ptr {
@@ -174,12 +186,12 @@ func flagsForActionable(act Actionable, c *cli.Context) (Actionable, error) {
 
 	objType := objValue.Type()
 
-	err := flagsForValue(&objValue, objType, c)
+	err := flagsForValue(&objValue, objType, c, bo)
 
 	return act, err
 }
 
-func flagsForValue(obj *reflect.Value, objType reflect.Type, c *cli.Context) error {
+func flagsForValue(obj *reflect.Value, objType reflect.Type, c *cli.Context, bo *BuildOptions) error {
 	args := c.Args().Slice()
 	hadPositionals := false
 	for i := 1; i < objType.NumField(); i++ {
@@ -188,7 +200,7 @@ func flagsForValue(obj *reflect.Value, objType reflect.Type, c *cli.Context) err
 			continue
 		}
 		var flieldMetadata []commandMetadata
-		err := parseFieldOrPositional("", []int{i}, fieldType, &flieldMetadata, &flieldMetadata)
+		err := parseFieldOrPositional("", []int{i}, fieldType, &flieldMetadata, &flieldMetadata, bo)
 		if err != nil {
 			return err
 		}
@@ -249,12 +261,12 @@ func flagsForValue(obj *reflect.Value, objType reflect.Type, c *cli.Context) err
 	return nil
 }
 
-func build(obj interface{}) (c *cli.App, err error) {
+func build(obj interface{}, bo *BuildOptions) (c *cli.App, err error) {
 	c = cli.NewApp()
 	c.Metadata = make(map[string]interface{})
 	c.HideHelpCommand = true
 
-	commands, err := buildCommands(c, "", obj)
+	commands, err := buildCommands(c, "", bo, obj)
 	if err != nil {
 		return
 	}
@@ -279,10 +291,10 @@ func build(obj interface{}) (c *cli.App, err error) {
 	return
 }
 
-func buildCommands(c *cli.App, parentCommandPath string, objs ...interface{}) (commands []*cli.Command, err error) {
+func buildCommands(c *cli.App, parentCommandPath string, bo *BuildOptions, objs ...interface{}) (commands []*cli.Command, err error) {
 	for _, obj := range objs {
 		var command *cli.Command
-		command, err = commandFromObject(c, parentCommandPath, obj)
+		command, err = commandFromObject(c, parentCommandPath, obj, bo)
 		if err != nil {
 			return
 		}
@@ -291,7 +303,7 @@ func buildCommands(c *cli.App, parentCommandPath string, objs ...interface{}) (c
 	return
 }
 
-func buildSubcommands(c *cli.App, parentCommandPath string, subcommandsField reflect.Value) (commands []*cli.Command, err error) {
+func buildSubcommands(c *cli.App, parentCommandPath string, subcommandsField reflect.Value, bo *BuildOptions) (commands []*cli.Command, err error) {
 	subcommandsFieldValue := subcommandsField
 	for subcommandsFieldValue.Kind() == reflect.Ptr {
 		subcommandsFieldValue = subcommandsFieldValue.Elem()
@@ -304,7 +316,7 @@ func buildSubcommands(c *cli.App, parentCommandPath string, subcommandsField ref
 		subcommandFieldType := subcommandsType.Field(i)
 		subcommand := subcommandsFieldValue.Field(i)
 		if subcommandFieldType.Type.Kind() == reflect.Struct {
-			cmds, err = buildSubcommands(c, parentCommandPath, subcommand)
+			cmds, err = buildSubcommands(c, parentCommandPath, subcommand, bo)
 			if err != nil {
 				return
 			}
@@ -323,7 +335,7 @@ func buildSubcommands(c *cli.App, parentCommandPath string, subcommandsField ref
 		}
 		subcommands = append(subcommands, subcommand.Interface())
 	}
-	cmds, err = buildCommands(c, parentCommandPath, subcommands...)
+	cmds, err = buildCommands(c, parentCommandPath, bo, subcommands...)
 	if err != nil {
 		return
 	}
@@ -348,7 +360,7 @@ type commandMetadata struct {
 	UseShortOptions bool
 }
 
-func commandFromObject(c *cli.App, parentCommandPath string, obj interface{}) (*cli.Command, error) {
+func commandFromObject(c *cli.App, parentCommandPath string, obj interface{}, bo *BuildOptions) (*cli.Command, error) {
 	if sc, ok := obj.(HasSubcommand); ok {
 		return sc.Subcommand(c, parentCommandPath), nil
 	}
@@ -374,7 +386,7 @@ func commandFromObject(c *cli.App, parentCommandPath string, obj interface{}) (*
 	}
 
 	// the first field must be an embedded *Command struct
-	command, err := getCommand(objType.Field(0), objValue.Field(0))
+	command, err := getCommand(objType.Field(0), objValue.Field(0), bo)
 	if err != nil {
 		if wffe, ok := err.(*WrongFirstFieldError); ok {
 			wffe.NumFields = objType.NumField()
@@ -398,7 +410,7 @@ func commandFromObject(c *cli.App, parentCommandPath string, obj interface{}) (*
 	command.Before = func(ctx *cli.Context) error {
 		obj := ctx.App.Metadata[commandPath]
 		act := obj.(Actionable)
-		flags, err := flagsForActionable(act, ctx)
+		flags, err := flagsForActionable(act, ctx, bo)
 		if err == nil {
 			ctx.App.Metadata[commandPath] = flags
 		} else {
@@ -438,7 +450,7 @@ func commandFromObject(c *cli.App, parentCommandPath string, obj interface{}) (*
 	for i := 1; i < objType.NumField(); i++ {
 		fieldType := objType.Field(i)
 		if fieldType.Name == "Subcommands" {
-			command.Subcommands, err = buildSubcommands(c, commandPath, objValue.Field(i).Addr())
+			command.Subcommands, err = buildSubcommands(c, commandPath, objValue.Field(i).Addr(), bo)
 			if err != nil {
 				return nil, err
 			}
@@ -448,7 +460,7 @@ func commandFromObject(c *cli.App, parentCommandPath string, obj interface{}) (*
 			command.run = objValue.Field(i).Interface().(RunFunc)
 			continue
 		}
-		parseFieldOrPositional("", nil, fieldType, &positionals, &flags)
+		parseFieldOrPositional("", nil, fieldType, &positionals, &flags, bo)
 	}
 	for _, flagMeta := range flags {
 		var flag cli.Flag
@@ -492,7 +504,7 @@ func commandFromObject(c *cli.App, parentCommandPath string, obj interface{}) (*
 	return command.Command, nil
 }
 
-func getCommand(fieldType reflect.StructField, fieldValue reflect.Value) (c *Command, err error) {
+func getCommand(fieldType reflect.StructField, fieldValue reflect.Value, bo *BuildOptions) (c *Command, err error) {
 	if fieldType.Name != "Command" || fieldType.Type != reflect.TypeOf((*Command)(nil)) {
 		return nil, &WrongFirstFieldError{
 			NumFields: 0,
@@ -513,7 +525,7 @@ func getCommand(fieldType reflect.StructField, fieldValue reflect.Value) (c *Com
 		cmd.Command = &cli.Command{}
 	}
 
-	cmdMeta, err := parseMeta("", nil, fieldType)
+	cmdMeta, err := parseMeta("", nil, fieldType, bo)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read cmdMeta tag on the embedded clive.Command struct pointer: %s", err.Error())
 	}
@@ -528,9 +540,9 @@ func getCommand(fieldType reflect.StructField, fieldValue reflect.Value) (c *Com
 	return cmd, nil
 }
 
-func parseFieldOrPositional(prefix string, accesses []int, fieldType reflect.StructField, positionals *[]commandMetadata, flags *[]commandMetadata) (err error) {
+func parseFieldOrPositional(prefix string, accesses []int, fieldType reflect.StructField, positionals *[]commandMetadata, flags *[]commandMetadata, bo *BuildOptions) (err error) {
 	var cmdMeta commandMetadata
-	cmdMeta, err = parseMeta(prefix, accesses, fieldType)
+	cmdMeta, err = parseMeta(prefix, accesses, fieldType, bo)
 	if err != nil {
 		return
 	}
@@ -550,7 +562,7 @@ func parseFieldOrPositional(prefix string, accesses []int, fieldType reflect.Str
 			copy(fAccesses, cmdMeta.Accesses)
 			fAccesses[len(fAccesses)-1] = i
 
-			err = parseFieldOrPositional(cmdMeta.Name, fAccesses, fT, positionals, flags)
+			err = parseFieldOrPositional(cmdMeta.Name, fAccesses, fT, positionals, flags, bo)
 			if err != nil {
 				err = fmt.Errorf("parsing inline field %s: %w", fieldType.Name, err)
 				return
@@ -568,7 +580,7 @@ func parseFieldOrPositional(prefix string, accesses []int, fieldType reflect.Str
 	return
 }
 
-func parseMeta(prefix string, accesses []int, fieldType reflect.StructField) (cmdMeta commandMetadata, err error) {
+func parseMeta(prefix string, accesses []int, fieldType reflect.StructField, bo *BuildOptions) (cmdMeta commandMetadata, err error) {
 	s := fieldType.Tag.Get("cli")
 
 	cmdMeta.Skipped = false
@@ -695,6 +707,11 @@ func parseMeta(prefix string, accesses []int, fieldType reflect.StructField) (cm
 	if len(cmdMeta.Envs) == 0 {
 		cmdMeta.Envs = []string{
 			strcase.ToScreamingSnake(cmdMeta.Name),
+		}
+		if bo.EnvPrefix != "" {
+			for i, v := range cmdMeta.Envs {
+				cmdMeta.Envs[i] = bo.EnvPrefix + "_" + v
+			}
 		}
 	}
 	return cmdMeta, err
