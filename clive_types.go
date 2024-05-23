@@ -307,15 +307,18 @@ func newFlag[T any, Flag any](cmdMeta commandMetadata) (flag cli.Flag, err error
 	refTypedFlag.Elem().FieldByName("Name").SetString(cmdMeta.Name)
 	refTypedFlag.Elem().FieldByName("EnvVars").Set(reflect.ValueOf(cmdMeta.Envs))
 	refTypedFlag.Elem().FieldByName("Aliases").Set(reflect.ValueOf(cmdMeta.Aliases))
-	if defRefPtr.IsValid() {
-		refTypedFlag.Elem().FieldByName("Value").Set(defRefPtr)
-	}
-	refTypedFlag.Elem().FieldByName("Hidden").SetBool(cmdMeta.Hidden)
-	refTypedFlag.Elem().FieldByName("Usage").SetString(cmdMeta.Usage)
-
 	if Reflected[T]() == Reflected[Counter]() {
 		refTypedFlag.Elem().FieldByName("Count").Set(reflect.New(Reflected[int]()))
 	}
+	if defRefPtr.IsValid() {
+		if Reflected[T]() != Reflected[Counter]() {
+			refTypedFlag.Elem().FieldByName("Value").Set(defRefPtr)
+		} else {
+			refTypedFlag.Elem().FieldByName("Count").Elem().Set(reflect.ValueOf(defRefPtr.Interface().(Counter).Value))
+		}
+	}
+	refTypedFlag.Elem().FieldByName("Hidden").SetBool(cmdMeta.Hidden)
+	refTypedFlag.Elem().FieldByName("Usage").SetString(cmdMeta.Usage)
 
 	flag = refTypedFlag.Interface().(cli.Flag)
 	return

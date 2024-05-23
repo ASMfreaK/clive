@@ -1127,7 +1127,7 @@ func TestRunAll(t *testing.T) {
 		*clive.Command `cli:"shortOpt"`
 
 		Run    clive.RunFunc
-		Silent clive.Counter `cli:"alias:s"`
+		Silent clive.Counter `cli:"alias:s,default:10"`
 	}
 
 	tests = append(tests, test{
@@ -1135,20 +1135,33 @@ func TestRunAll(t *testing.T) {
 		obj: &Tcounter{Run: func(c *clive.Command, ctx *cli.Context) error {
 			flags, ok := c.Current(ctx).(*Tcounter)
 			assert.True(t, ok)
-			assert.Equal(t, 0, flags.Silent.Value)
+			assert.Equal(t, 9, flags.Silent.Value)
 			return nil
 		}},
 		args: []string{
 			"",
 		},
 	})
-
 	tests = append(tests, test{
-		name: "counter some",
+		name: "counter one",
 		obj: &Tcounter{Run: func(c *clive.Command, ctx *cli.Context) error {
 			flags, ok := c.Current(ctx).(*Tcounter)
 			assert.True(t, ok)
-			assert.Equal(t, 2, flags.Silent.Value)
+			assert.Equal(t, 11, flags.Silent.Value)
+			return nil
+		}},
+		args: []string{
+			"",
+			"--silent",
+		},
+	})
+
+	tests = append(tests, test{
+		name: "counter some long",
+		obj: &Tcounter{Run: func(c *clive.Command, ctx *cli.Context) error {
+			flags, ok := c.Current(ctx).(*Tcounter)
+			assert.True(t, ok)
+			assert.Equal(t, 12, flags.Silent.Value)
 			return nil
 		}},
 		args: []string{
@@ -1158,16 +1171,16 @@ func TestRunAll(t *testing.T) {
 	})
 
 	tests = append(tests, test{
-		name: "counter some",
+		name: "counter some short",
 		obj: &Tcounter{Run: func(c *clive.Command, ctx *cli.Context) error {
 			flags, ok := c.Current(ctx).(*Tcounter)
 			assert.True(t, ok)
-			assert.Equal(t, 3, flags.Silent.Value)
+			assert.Equal(t, 13, flags.Silent.Value)
 			return nil
 		}},
 		args: []string{
 			"",
-			"-sss",
+			"-sss", "+s",
 		},
 	})
 
