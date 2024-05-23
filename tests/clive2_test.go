@@ -178,10 +178,10 @@ type App struct {
 
 	PostgresDsn           string  `cli:"default:hello"`
 	ProcessSchedule       string  `cli:"hidden:true"`
-	ApplicationAPIAddress *string `cli:"name:api_address"`
+	ApplicationAPIAddress *string `cli:"name:api_address,alias:'a,i'"`
 	Uints64               []uint64
 
-	Color  ColorT         `cli:"default:Blue"`
+	Color  ColorT         `cli:"default:Blue,alias:'c'"`
 	Input  ComposedOption `cli:"inline"`
 	Output ComposedOption `cli:"inline"`
 }
@@ -289,6 +289,7 @@ func TestBuild(t *testing.T) {
 				&cli.StringFlag{
 					Name:    "api-address",
 					EnvVars: []string{"API_ADDRESS"},
+					Aliases: []string{"a", "i"},
 				},
 				&cli.Uint64SliceFlag{
 					Name:    "uints-64",
@@ -298,6 +299,7 @@ func TestBuild(t *testing.T) {
 					Name:    "color",
 					EnvVars: []string{"COLOR"},
 					Value:   "Blue",
+					Aliases: []string{"c"},
 					Usage:   "possible values: [Red, Green, Blue]",
 				},
 

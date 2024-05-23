@@ -293,6 +293,7 @@ func newFlag[T any, Flag any](cmdMeta commandMetadata) (flag cli.Flag, err error
 	refTypedFlag := reflect.ValueOf(typedFlag)
 	refTypedFlag.Elem().FieldByName("Name").SetString(cmdMeta.Name)
 	refTypedFlag.Elem().FieldByName("EnvVars").Set(reflect.ValueOf(cmdMeta.Envs))
+	refTypedFlag.Elem().FieldByName("Aliases").Set(reflect.ValueOf(cmdMeta.Aliases))
 	if defRefPtr.IsValid() {
 		refTypedFlag.Elem().FieldByName("Value").Set(defRefPtr)
 	}

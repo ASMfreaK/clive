@@ -334,6 +334,7 @@ type commandMetadata struct {
 	TypeInterface
 	Name       string
 	Envs       []string
+	Aliases    []string
 	Usage      string
 	Hidden     bool
 	Default    *string
@@ -612,6 +613,8 @@ func parseMeta(prefix string, accesses []int, fieldType reflect.StructField) (cm
 				requiredSetFromTags = true
 			case "env":
 				cmdMeta.Envs = strings.Split(keyValue[1], ",")
+			case "alias":
+				cmdMeta.Aliases = strings.Split(keyValue[1], ",")
 			case "hidden":
 				cmdMeta.Hidden, err = strconv.ParseBool(keyValue[1])
 				if err != nil {
