@@ -319,6 +319,10 @@ func newFlag[T any, Flag any](cmdMeta commandMetadata) (flag cli.Flag, err error
 	}
 	refTypedFlag.Elem().FieldByName("Hidden").SetBool(cmdMeta.Hidden)
 	refTypedFlag.Elem().FieldByName("Usage").SetString(cmdMeta.Usage)
+	req := refTypedFlag.Elem().FieldByName("Required")
+	if req.IsValid() {
+		req.SetBool(cmdMeta.Required)
+	}
 
 	flag = refTypedFlag.Interface().(cli.Flag)
 	return

@@ -152,7 +152,7 @@ type SetOption struct {
 
 type ComposedOption struct {
 	Role Role
-	Port int
+	Port int `cli:"required"`
 }
 
 type StartStop struct {
@@ -311,8 +311,9 @@ func TestBuild(t *testing.T) {
 					Usage:   "possible values: [server, client]",
 				},
 				&cli.IntFlag{
-					Name:    "input-port",
-					EnvVars: []string{"INPUT_PORT"},
+					Name:     "input-port",
+					EnvVars:  []string{"INPUT_PORT"},
+					Required: true,
 				},
 				&cli.StringFlag{
 					Name:    "output-role",
@@ -320,8 +321,9 @@ func TestBuild(t *testing.T) {
 					Usage:   "possible values: [server, client]",
 				},
 				&cli.IntFlag{
-					Name:    "output-port",
-					EnvVars: []string{"OUTPUT_PORT"},
+					Name:     "output-port",
+					EnvVars:  []string{"OUTPUT_PORT"},
+					Required: true,
 				},
 			},
 			Commands: []*cli.Command{
