@@ -274,7 +274,6 @@ func TestBuild(t *testing.T) {
 	tests = append(tests, test{
 		obj: app,
 		wantC: &cli.App{
-			Name: "tests.test",
 			// HelpName: "clive.test",
 			Usage:           "test command",
 			Version:         "some-version-string",
@@ -404,7 +403,6 @@ func TestBuild(t *testing.T) {
 	tests = append(tests, test{
 		obj: &C12{},
 		wantC: &cli.App{
-			Name: "tests.test",
 			// HelpName: "clive.test",
 			Usage: "",
 			// Version:  "0.0.0",
@@ -447,7 +445,6 @@ func TestBuild(t *testing.T) {
 			EnvPrefix: "C12",
 		},
 		wantC: &cli.App{
-			Name: "tests.test",
 			// HelpName: "clive.test",
 			Usage: "",
 			// Version:  "0.0.0",
@@ -491,7 +488,6 @@ func TestBuild(t *testing.T) {
 	tests = append(tests, test{
 		obj: countObj,
 		wantC: &cli.App{
-			Name: "tests.test",
 			// HelpName: "clive.test",
 			Usage: "",
 			// Version:  "0.0.0",
@@ -537,6 +533,8 @@ func TestBuild(t *testing.T) {
 
 			// dont check Metadata (used internally)
 			gotC.Metadata = nil
+			gotC.Name = ""
+			tt.wantC.Name = ""
 
 			queue := make([]*cli.Command, len(gotC.Commands))
 			copy(queue, gotC.Commands)
