@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/hashicorp/go-multierror"
 	"github.com/iancoleman/strcase"
 	"github.com/urfave/cli/v2"
 )
@@ -89,12 +90,12 @@ func (c *Command) Action(ctx *cli.Context) error {
 	if root == current {
 		err = cli.ShowAppHelp(ctx)
 	} else {
-		parent := c.Parent(ctx)
-		if parent == root {
-			err = cli.ShowSubcommandHelp(ctx)
-		} else {
-			err = cli.ShowSubcommandHelp(ctx)
-		}
+		// parent := c.Parent(ctx)
+		err = cli.ShowSubcommandHelp(ctx)
+		// if parent == root {
+		// } else {
+		// 	err = cli.ShowSubcommandHelp(ctx)
+		// }
 	}
 	if err == nil {
 		err = ErrCommandNotImplemented()
@@ -178,7 +179,6 @@ func BuildCustom(obj interface{}, o BuildOptions) (c *cli.App) {
 }
 
 func flagsForActionable(act Actionable, c *cli.Context, bo *BuildOptions) (Actionable, error) {
-
 	objValue := reflect.ValueOf(act)
 	for objValue.Kind() == reflect.Ptr {
 		objValue = objValue.Elem()
@@ -310,7 +310,7 @@ func buildSubcommands(c *cli.App, parentCommandPath string, subcommandsField ref
 	}
 
 	subcommandsType := subcommandsFieldValue.Type()
-	var subcommands = make([]interface{}, 0, subcommandsType.NumField())
+	subcommands := make([]interface{}, 0, subcommandsType.NumField())
 	var cmds []*cli.Command
 	for i := 0; i < subcommandsType.NumField(); i++ {
 		subcommandFieldType := subcommandsType.Field(i)
@@ -388,7 +388,7 @@ func commandFromObject(c *cli.App, parentCommandPath string, obj interface{}, bo
 	// the first field must be an embedded *Command struct
 	command, err := getCommand(objType.Field(0), objValue.Field(0), bo)
 	if err != nil {
-		if wffe, ok := err.(*WrongFirstFieldError); ok {
+		if wffe, ok := err.(*WrongFirstFieldError); ok { //nolint:errorlint // getCommand returns WrongFirstFieldError explicitly
 			wffe.NumFields = objType.NumField()
 		}
 		return nil, err
@@ -410,17 +410,20 @@ func commandFromObject(c *cli.App, parentCommandPath string, obj interface{}, bo
 	command.Before = func(ctx *cli.Context) error {
 		obj := ctx.App.Metadata[commandPath]
 		act := obj.(Actionable)
-		flags, err := flagsForActionable(act, ctx, bo)
-		if err == nil {
+		flags, berr := flagsForActionable(act, ctx, bo)
+		if berr == nil {
 			ctx.App.Metadata[commandPath] = flags
 		} else {
-			cli.ShowSubcommandHelp(ctx)
-			return err
+			sherr := cli.ShowSubcommandHelp(ctx)
+			if sherr != nil {
+				berr = multierror.Append(berr, sherr)
+			}
+			return berr
 		}
 		if before, ok := obj.(HasBefore); ok {
-			err = before.Before(ctx)
+			berr = before.Before(ctx)
 		}
-		return err
+		return berr
 	}
 	command.Command.Action = func(ctx *cli.Context) error {
 		act := ctx.App.Metadata[commandPath].(Actionable)
@@ -475,7 +478,7 @@ func commandFromObject(c *cli.App, parentCommandPath string, obj interface{}, bo
 	}
 	command.Args = len(positionals) != 0
 	optionalStarted := false
-	var variadicStarted *string = nil
+	var variadicStarted *string
 	var positionalUsage []string
 	for _, positional := range positionals {
 		if variadicStarted != nil {
@@ -494,10 +497,8 @@ func commandFromObject(c *cli.App, parentCommandPath string, obj interface{}, bo
 		if optional {
 			optionalStarted = true
 			usage = fmt.Sprintf("[%s]", usage)
-		} else {
-			if optionalStarted {
-				return nil, fmt.Errorf("positional argument %s cannot be non-optional after an optional argument", positional.Name)
-			}
+		} else if optionalStarted {
+			return nil, fmt.Errorf("positional argument %s cannot be non-optional after an optional argument", positional.Name)
 		}
 		positionalUsage = append(positionalUsage, usage)
 	}
@@ -543,7 +544,7 @@ func getCommand(fieldType reflect.StructField, fieldValue reflect.Value, bo *Bui
 	return cmd, nil
 }
 
-func parseFieldOrPositional(prefix string, accesses []int, fieldType reflect.StructField, positionals *[]commandMetadata, flags *[]commandMetadata, bo *BuildOptions) (err error) {
+func parseFieldOrPositional(prefix string, accesses []int, fieldType reflect.StructField, positionals, flags *[]commandMetadata, bo *BuildOptions) (err error) {
 	var cmdMeta commandMetadata
 	cmdMeta, err = parseMeta(prefix, accesses, fieldType, bo)
 	if err != nil {

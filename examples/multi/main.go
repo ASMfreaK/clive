@@ -89,7 +89,7 @@ type SetOption struct {
 
 func (one *SetOption) Action(c *cli.Context) error {
 	app := one.Root(c).(*App)
-	var parent interface{} = nil //one.Parent(c)
+	var parent interface{} = nil // one.Parent(c)
 	fmt.Printf("set-option %+v app: %+v parent: %+v\n", one, app, parent)
 	return nil
 }

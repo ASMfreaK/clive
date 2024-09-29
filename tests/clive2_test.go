@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"os"
 	"testing"
 	"time"
@@ -76,7 +77,7 @@ type Start struct {
 }
 
 func (start *Start) Action(*cli.Context) error {
-	fmt.Printf("start %+v\n", start)
+	slog.Info("start", "c", start)
 	return nil
 }
 
@@ -95,13 +96,13 @@ describing stop command
 `
 }
 
-type Json struct {
+type JSON struct {
 	Value interface{}
 }
 
-func (j *Json) MarshalText() ([]byte, error) { return json.Marshal(&j.Value) }
+func (j *JSON) MarshalText() ([]byte, error) { return json.Marshal(&j.Value) }
 
-func (j *Json) UnmarshalText(text []byte) error { return json.Unmarshal(text, &j.Value) }
+func (j *JSON) UnmarshalText(text []byte) error { return json.Unmarshal(text, &j.Value) }
 
 type Role int
 
@@ -118,6 +119,7 @@ var roleStrings = []string{
 func (c Role) String() string {
 	return roleStrings[c]
 }
+
 func (c *Role) Variants() []string {
 	return roleStrings
 }
@@ -147,7 +149,7 @@ type SetOption struct {
 	Run clive.RunFunc
 
 	Name  string `cli:"positional"`
-	Value Json   `cli:"positional"`
+	Value JSON   `cli:"positional"`
 }
 
 type ComposedOption struct {
@@ -554,8 +556,8 @@ func TestBuild(t *testing.T) {
 				s := bufio.NewScanner(b)
 				i := 0
 				for s.Scan() {
-					i += 1
-					fmt.Printf("%03d: %s\n", i, s.Bytes())
+					i++
+					slog.Info("FT", "i", i, "s", s.Bytes())
 				}
 			}
 		})
@@ -581,7 +583,8 @@ func TestRunDefaults(t *testing.T) {
 			assert.Equal(t, flags.Three, "1.2.3.4")
 
 			return nil
-		}})
+		},
+	})
 	err := gotC.Run([]string{"", "--one=hi", "--two=world"})
 	if err != nil {
 		t.Error(err)
@@ -594,7 +597,7 @@ func TestRunAll(t *testing.T) {
 		obj  interface{}
 		args []string
 	}
-	var tests []test = []test{}
+	tests := []test{}
 
 	type Tflags struct {
 		*clive.Command
@@ -1245,7 +1248,6 @@ func TestRunAll(t *testing.T) {
 			}
 		})
 	}
-
 }
 
 func TestRunAllDefaults(t *testing.T) {
@@ -1253,7 +1255,7 @@ func TestRunAllDefaults(t *testing.T) {
 		name string
 		obj  interface{}
 	}
-	var tests []test = []test{}
+	tests := []test{}
 
 	type T struct {
 		*clive.Command

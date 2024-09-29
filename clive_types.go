@@ -63,7 +63,7 @@ func bits[T any]() int {
 	return rv.Bits()
 }
 
-func convertSlice[U any, T any](ret *[]U, ts []T, conv func(*U, T) error) (err error) {
+func convertSlice[U, T any](ret *[]U, ts []T, conv func(*U, T) error) (err error) {
 	*ret = make([]U, len(ts))
 	for i, v := range ts {
 		err = conv(&(*ret)[i], v)
@@ -74,54 +74,55 @@ func convertSlice[U any, T any](ret *[]U, ts []T, conv func(*U, T) error) (err e
 	return
 }
 
+//nolint:unparam
 func contextFunction[T any]() (ret func(ret *T, ctx *cli.Context, s string) error) {
 	switch rv := interface{}(&ret).(type) {
 	// scalars
 	case *func(*int, *cli.Context, string) error:
-		*rv = func(ret *int, ctx *cli.Context, s string) (err error) { *ret = ctx.Int(s); return }
+		*rv = func(ret *int, ctx *cli.Context, s string) error { *ret = ctx.Int(s); return nil }
 	case *func(*int64, *cli.Context, string) error:
-		*rv = func(ret *int64, ctx *cli.Context, s string) (err error) { *ret = ctx.Int64(s); return }
+		*rv = func(ret *int64, ctx *cli.Context, s string) error { *ret = ctx.Int64(s); return nil }
 	case *func(*uint, *cli.Context, string) error:
-		*rv = func(ret *uint, ctx *cli.Context, s string) (err error) { *ret = ctx.Uint(s); return }
+		*rv = func(ret *uint, ctx *cli.Context, s string) error { *ret = ctx.Uint(s); return nil }
 	case *func(*uint64, *cli.Context, string) error:
-		*rv = func(ret *uint64, ctx *cli.Context, s string) (err error) { *ret = ctx.Uint64(s); return }
+		*rv = func(ret *uint64, ctx *cli.Context, s string) error { *ret = ctx.Uint64(s); return nil }
 	case *func(*float32, *cli.Context, string) error:
-		*rv = func(ret *float32, ctx *cli.Context, s string) (err error) { *ret = float32(ctx.Float64(s)); return }
+		*rv = func(ret *float32, ctx *cli.Context, s string) error { *ret = float32(ctx.Float64(s)); return nil }
 	case *func(*float64, *cli.Context, string) error:
-		*rv = func(ret *float64, ctx *cli.Context, s string) (err error) { *ret = ctx.Float64(s); return }
+		*rv = func(ret *float64, ctx *cli.Context, s string) error { *ret = ctx.Float64(s); return nil }
 	case *func(*string, *cli.Context, string) error:
-		*rv = func(ret *string, ctx *cli.Context, s string) (err error) { *ret = ctx.String(s); return }
+		*rv = func(ret *string, ctx *cli.Context, s string) error { *ret = ctx.String(s); return nil }
 	case *func(*time.Duration, *cli.Context, string) error:
-		*rv = func(ret *time.Duration, ctx *cli.Context, s string) (err error) { *ret = ctx.Duration(s); return }
+		*rv = func(ret *time.Duration, ctx *cli.Context, s string) error { *ret = ctx.Duration(s); return nil }
 	case *func(*bool, *cli.Context, string) error:
-		*rv = func(ret *bool, ctx *cli.Context, s string) (err error) { *ret = ctx.Bool(s); return }
+		*rv = func(ret *bool, ctx *cli.Context, s string) error { *ret = ctx.Bool(s); return nil }
 	case *func(*Counter, *cli.Context, string) error:
-		*rv = func(ret *Counter, ctx *cli.Context, s string) (err error) { ret.Value = ctx.Count(s); return }
+		*rv = func(ret *Counter, ctx *cli.Context, s string) error { ret.Value = ctx.Count(s); return nil }
 	// slices
 	case *func(*[]int, *cli.Context, string) error:
-		*rv = func(ret *[]int, ctx *cli.Context, s string) (err error) { *ret = ctx.IntSlice(s); return }
+		*rv = func(ret *[]int, ctx *cli.Context, s string) error { *ret = ctx.IntSlice(s); return nil }
 	case *func(*[]int64, *cli.Context, string) error:
-		*rv = func(ret *[]int64, ctx *cli.Context, s string) (err error) { *ret = ctx.Int64Slice(s); return }
+		*rv = func(ret *[]int64, ctx *cli.Context, s string) error { *ret = ctx.Int64Slice(s); return nil }
 	case *func(*[]uint, *cli.Context, string) error:
-		*rv = func(ret *[]uint, ctx *cli.Context, s string) (err error) { *ret = ctx.UintSlice(s); return }
+		*rv = func(ret *[]uint, ctx *cli.Context, s string) error { *ret = ctx.UintSlice(s); return nil }
 	case *func(*[]uint64, *cli.Context, string) error:
-		*rv = func(ret *[]uint64, ctx *cli.Context, s string) (err error) { *ret = ctx.Uint64Slice(s); return }
+		*rv = func(ret *[]uint64, ctx *cli.Context, s string) error { *ret = ctx.Uint64Slice(s); return nil }
 	case *func(*[]float32, *cli.Context, string) error:
-		*rv = func(ret *[]float32, ctx *cli.Context, s string) (err error) {
+		*rv = func(ret *[]float32, ctx *cli.Context, s string) error {
 			return convertSlice[float32, float64](
 				ret, ctx.Float64Slice(s),
 				func(f1 *float32, f2 float64) error { *f1 = float32(f2); return nil })
 		}
 	case *func(*[]float64, *cli.Context, string) error:
-		*rv = func(ret *[]float64, ctx *cli.Context, s string) (err error) { *ret = ctx.Float64Slice(s); return }
+		*rv = func(ret *[]float64, ctx *cli.Context, s string) error { *ret = ctx.Float64Slice(s); return nil }
 	case *func(*[]string, *cli.Context, string) error:
-		*rv = func(ret *[]string, ctx *cli.Context, s string) (err error) { *ret = ctx.StringSlice(s); return }
+		*rv = func(ret *[]string, ctx *cli.Context, s string) error { *ret = ctx.StringSlice(s); return nil }
 	case *func(*[]time.Duration, *cli.Context, string) error:
-		*rv = func(ret *[]time.Duration, ctx *cli.Context, s string) (err error) {
+		*rv = func(ret *[]time.Duration, ctx *cli.Context, s string) error {
 			return convertSlice[time.Duration, string](ret, ctx.StringSlice(s), parseStandartTypes[time.Duration])
 		}
 	case *func(*[]bool, *cli.Context, string) error:
-		*rv = func(ret *[]bool, ctx *cli.Context, s string) (err error) {
+		*rv = func(ret *[]bool, ctx *cli.Context, s string) error {
 			return convertSlice[bool, string](ret, ctx.StringSlice(s), parseStandartTypes[bool])
 		}
 	default:
@@ -203,7 +204,7 @@ func cliSliceFromStandartSliceTypes[T any](val *T) (ret reflect.Value, err error
 		ret = reflect.ValueOf(cli.NewUint64Slice((*rv)...))
 	case *[]float32:
 		var realSlice []float64
-		convertSlice[float64, float32](&realSlice, *rv, func(f1 *float64, f2 float32) error { *f1 = float64(f2); return nil })
+		err = convertSlice[float64, float32](&realSlice, *rv, func(f1 *float64, f2 float32) error { *f1 = float64(f2); return nil })
 		ret = reflect.ValueOf(cli.NewFloat64Slice(realSlice...))
 	case *[]float64:
 		ret = reflect.ValueOf(cli.NewFloat64Slice((*rv)...))
@@ -211,11 +212,11 @@ func cliSliceFromStandartSliceTypes[T any](val *T) (ret reflect.Value, err error
 		ret = reflect.ValueOf(cli.NewStringSlice((*rv)...))
 	case *[]time.Duration:
 		var realSlice []string
-		convertSlice[string, time.Duration](&realSlice, *rv, func(s *string, d time.Duration) error { *s = d.String(); return nil })
+		err = convertSlice[string, time.Duration](&realSlice, *rv, func(s *string, d time.Duration) error { *s = d.String(); return nil })
 		ret = reflect.ValueOf(cli.NewStringSlice(realSlice...))
 	case *[]bool:
 		var realSlice []string
-		convertSlice[string, bool](&realSlice, *rv, func(s *string, b bool) error { *s = strconv.FormatBool(b); return nil })
+		err = convertSlice[string, bool](&realSlice, *rv, func(s *string, b bool) error { *s = strconv.FormatBool(b); return nil })
 		ret = reflect.ValueOf(cli.NewStringSlice(realSlice...))
 	default:
 		err = fmt.Errorf("unexpected type in  parseStandartTypes" + reflect.TypeOf((*T)(nil)).Elem().String())
@@ -280,7 +281,7 @@ func setValueFromContext[T any](value reflect.Value, flagName string, context *c
 	return
 }
 
-func newFlag[T any, Flag any](cmdMeta commandMetadata) (flag cli.Flag, err error) {
+func newFlag[T, Flag any](cmdMeta commandMetadata) (flag cli.Flag, err error) {
 	var def T
 	var defRefPtr reflect.Value
 	if cmdMeta.Default != nil {
@@ -336,8 +337,8 @@ type StandardType struct {
 	setValueFromStrings setValueFromStringsHandler
 }
 
-func NewStandardType[T any, Flag any]() *StandardType {
-	var variadic setValueFromStringsHandler = nil
+func NewStandardType[T, Flag any]() *StandardType {
+	var variadic setValueFromStringsHandler
 	if isVariadic[T]() {
 		variadic = setValueFromStrings[T]
 	}
@@ -357,9 +358,11 @@ func (nt *StandardType) Predicate(fType reflect.Type) bool {
 func (nt *StandardType) SetValueFromString(val reflect.Value, s string) (err error) {
 	return nt.setValueFromString(val, s)
 }
+
 func (nt *StandardType) NewFlag(cmdMeta commandMetadata) (cli.Flag, error) {
 	return nt.newFlag(cmdMeta)
 }
+
 func (nt *StandardType) SetValueFromContext(value reflect.Value, flagName string, context *cli.Context) error {
 	return nt.setValueFromContext(value, flagName, context)
 }
@@ -367,6 +370,7 @@ func (nt *StandardType) SetValueFromContext(value reflect.Value, flagName string
 func (nt *StandardType) IsVariadic() bool {
 	return nt.setValueFromStrings != nil
 }
+
 func (nt *StandardType) SetValueFromStrings(val reflect.Value, s []string) (err error) {
 	return nt.setValueFromStrings(val, s)
 }
@@ -376,7 +380,7 @@ type InterfaceType struct {
 	under         TypeInterface
 	underType     reflect.Type
 
-	convert func(convertInto reflect.Value, fromUnderType reflect.Value) error
+	convert func(convertInto, fromUnderType reflect.Value) error
 }
 
 func (ifaceType *InterfaceType) Predicate(fType reflect.Type) bool {
@@ -450,12 +454,15 @@ func (ptrTo *PointerTo) maybeInitializeDereference(value reflect.Value) reflect.
 func (ptrTo *PointerTo) Predicate(fType reflect.Type) bool {
 	return fType.Kind() == reflect.Ptr
 }
+
 func (ptrTo *PointerTo) SetValueFromString(value reflect.Value, s string) (err error) {
 	return ptrTo.ti.SetValueFromString(ptrTo.maybeInitializeDereference(value), s)
 }
+
 func (ptrTo *PointerTo) NewFlag(cmdMeta commandMetadata) (cli.Flag, error) {
 	return ptrTo.ti.NewFlag(cmdMeta)
 }
+
 func (ptrTo *PointerTo) SetValueFromContext(value reflect.Value, flagName string, context *cli.Context) error {
 	return ptrTo.ti.SetValueFromContext(ptrTo.maybeInitializeDereference(value), flagName, context)
 }
@@ -466,8 +473,8 @@ func (ptrTo *PointerTo) SetValueFromStrings(value reflect.Value, s []string) (er
 
 func flagType(fieldType reflect.StructField) (TypeInterface, error) {
 	fieldValueType := fieldType.Type
-	var ptrTo *PointerTo = nil
-	var ptrCurrent *PointerTo = nil
+	var ptrTo *PointerTo
+	var ptrCurrent *PointerTo
 	for ptrCurrent.Predicate(fieldValueType) {
 		if ptrTo == nil {
 			ptrTo = &PointerTo{}
@@ -483,10 +490,9 @@ func flagType(fieldType reflect.StructField) (TypeInterface, error) {
 		if t.Predicate(fieldValueType) {
 			if ptrCurrent == nil {
 				return t, nil
-			} else {
-				ptrCurrent.ti = t
-				return ptrTo, nil
 			}
+			ptrCurrent.ti = t
+			return ptrTo, nil
 		}
 	}
 	return nil, fmt.Errorf("unsupported flag generator type: %s", fieldType.Type.String())
