@@ -460,7 +460,10 @@ func commandFromObject(c *cli.App, parentCommandPath string, obj interface{}, bo
 			command.run = objValue.Field(i).Interface().(RunFunc)
 			continue
 		}
-		parseFieldOrPositional("", nil, fieldType, &positionals, &flags, bo)
+		err = parseFieldOrPositional("", nil, fieldType, &positionals, &flags, bo)
+		if err != nil {
+			return nil, err
+		}
 	}
 	for _, flagMeta := range flags {
 		var flag cli.Flag
@@ -527,7 +530,7 @@ func getCommand(fieldType reflect.StructField, fieldValue reflect.Value, bo *Bui
 
 	cmdMeta, err := parseMeta("", nil, fieldType, bo)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read cmdMeta tag on the embedded clive.Command struct pointer: %s", err.Error())
+		return nil, fmt.Errorf("failed to read cmdMeta tag on the embedded clive.Command struct pointer: %w", err)
 	}
 	if cmdMeta.Name != "" {
 		cmd.Name = cmdMeta.Name
@@ -677,7 +680,7 @@ func parseMeta(prefix string, accesses []int, fieldType reflect.StructField, bo 
 			cmdMeta.TypeInterface, err = flagType(fieldType)
 			if err != nil {
 				err = fmt.Errorf("cant find type for %s field: %s", cmdMeta.Name, err.Error())
-				return
+				return cmdMeta, err
 			}
 		}
 		if cmdMeta.Name == "" {
