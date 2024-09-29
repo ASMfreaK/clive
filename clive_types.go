@@ -183,7 +183,7 @@ func parseStandartTypes[T any](ret *T, s string) (err error) {
 	// case *[]encoding.TextUnmarshaler:
 	// 	*rv, err = parseSlice[[]encoding.TextUnmarshaler](strings.Split(s, ","))
 	default:
-		err = fmt.Errorf("unexpected type in  parseStandartTypes" + reflect.TypeOf((*T)(nil)).Elem().String())
+		err = fmt.Errorf("unexpected type in  parseStandartTypes %s", reflect.TypeOf((*T)(nil)).Elem().String())
 	}
 	return
 }
@@ -219,7 +219,7 @@ func cliSliceFromStandartSliceTypes[T any](val *T) (ret reflect.Value, err error
 		err = convertSlice[string, bool](&realSlice, *rv, func(s *string, b bool) error { *s = strconv.FormatBool(b); return nil })
 		ret = reflect.ValueOf(cli.NewStringSlice(realSlice...))
 	default:
-		err = fmt.Errorf("unexpected type in  parseStandartTypes" + reflect.TypeOf((*T)(nil)).Elem().String())
+		err = fmt.Errorf("unexpected type in  parseStandartTypes %s", reflect.TypeOf((*T)(nil)).Elem().String())
 	}
 	return
 }
@@ -245,7 +245,7 @@ func parseStandartSliceTypes[T any](ret *T, s []string) (err error) {
 	case *[]bool:
 		err = parseSlice[[]bool](rv, s)
 	default:
-		err = fmt.Errorf("unexpected type in parseStandartSliceTypes" + reflect.TypeOf((*T)(nil)).Elem().String())
+		err = fmt.Errorf("unexpected type in parseStandartSliceTypes %s", reflect.TypeOf((*T)(nil)).Elem().String())
 	}
 	return
 }
